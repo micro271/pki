@@ -1,22 +1,19 @@
-use influxdb3_client::FieldValue;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Event {
     pub eventid: i64,
     pub nodo: String,
     pub severity: Severity,
     pub trigger: String,
-
-    #[serde(rename = "time")]
     pub start_time: i64,
-
     pub opdata: String,
     pub end_time: Option<i64>,
     pub status: Status,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, sqlx::Type)]
+#[sqlx(rename_all = "lowercase", type_name = "event_status")]
 pub enum Status {
     Resolved,
     Ongoing,
@@ -31,13 +28,19 @@ impl std::fmt::Display for Status {
     }
 }
 
-impl From<Status> for FieldValue {
-    fn from(value: Status) -> Self {
-        FieldValue::String(value.to_string())
+impl TryFrom<&str> for Status {
+    type Error = ();
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Ok(match value {
+            "RESOLVED" => Self::Resolved,
+            "ONGOING" => Self::Ongoing,
+            _ => return Err(()),
+        })
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, sqlx::Type)]
+#[sqlx(rename_all = "lowercase", type_name = "severity_level")]
 pub enum Severity {
     Warning,
     Information,
@@ -66,6 +69,21 @@ impl From<Severity> for String {
     }
 }
 
+impl TryFrom<&str> for Severity {
+    type Error = ();
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Ok(match value {
+            "warning" => Severity::Warning,
+            "information" => Severity::Information,
+            "average" => Severity::Average,
+            "high" => Severity::High,
+            "disaster" => Severity::Disaster,
+            "notClassifier" => Severity::NotClassifier,
+            _ => return Err(()),
+        })
+    }
+}
+
 impl Severity {
     pub fn to_number(self) -> i32 {
         match self {
@@ -89,5 +107,3 @@ impl Severity {
         })
     }
 }
-
-pub struct EventRaw {}
