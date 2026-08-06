@@ -107,3 +107,60 @@ impl Severity {
         })
     }
 }
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct Timestamp(i64);
+
+impl Timestamp {
+    pub fn set(&mut self, n: i64) {
+        self.0 = n;
+    }
+    pub fn get(&self) -> i64 {
+        self.0
+    }
+    pub fn new(n: i64) -> Self {
+        Self(n)
+    }
+}
+
+impl std::ops::Deref for Timestamp {
+    type Target = i64;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for Timestamp {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct EventId(i64);
+
+impl EventId {
+    pub fn new(n: i64) -> Self {
+        Self(n)
+    }
+    pub fn set(&mut self, n: i64) {
+        self.0 = n;
+    }
+
+    pub fn get(&self) -> i64 {
+        self.0
+    }
+}
+
+impl std::ops::Deref for EventId {
+    type Target = i64;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for EventId {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
