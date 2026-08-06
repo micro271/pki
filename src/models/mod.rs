@@ -1,3 +1,5 @@
+use std::sync::atomic::AtomicI64;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -108,52 +110,33 @@ impl Severity {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
-pub struct Timestamp(i64);
+#[derive(Debug, Serialize)]
+pub struct Timestamp(AtomicI64);
 
 impl Timestamp {
-    pub fn set(&mut self, n: i64) {
-        self.0 = n;
-    }
-    pub fn get(&self) -> i64 {
-        self.0
-    }
     pub fn new(n: i64) -> Self {
-        Self(n)
+        Self(AtomicI64::new(n))
     }
 }
 
 impl std::ops::Deref for Timestamp {
-    type Target = i64;
+    type Target = AtomicI64;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl std::ops::DerefMut for Timestamp {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize)]
-pub struct EventId(i64);
+#[derive(Debug, Serialize)]
+pub struct EventId(AtomicI64);
 
 impl EventId {
     pub fn new(n: i64) -> Self {
-        Self(n)
-    }
-    pub fn set(&mut self, n: i64) {
-        self.0 = n;
-    }
-
-    pub fn get(&self) -> i64 {
-        self.0
+        Self(AtomicI64::new(n))
     }
 }
 
 impl std::ops::Deref for EventId {
-    type Target = i64;
+    type Target = AtomicI64;
     fn deref(&self) -> &Self::Target {
         &self.0
     }

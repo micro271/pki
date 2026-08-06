@@ -1,6 +1,7 @@
 use crate::repository::Repository;
 use tokio::net::{UnixListener, UnixStream};
 
+pub mod app;
 pub mod models;
 pub mod repository;
 
