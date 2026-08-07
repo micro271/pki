@@ -1,5 +1,8 @@
-use crate::repository::Repository;
-use tokio::net::{UnixListener, UnixStream};
+use crate::{app::data_handler, repository::Repository};
+use tokio::{
+    net::{UnixListener, UnixStream},
+    sync::mpsc::channel,
+};
 
 pub mod app;
 pub mod models;
@@ -24,15 +27,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("Listening {socket:?}");
 
-    tokio::spawn(socket_handler(stm));
-
     let url = format!("postgres://{userdb}:{passwddb}@{host}:{port}/{db}");
+
+    let (tx, rx) = channel(64);
+
+    let repo = Repository::new(&url, tx).await;
+
+    tokio::spawn(socket_handler(stm, repo.clone()));
+    tokio::spawn(data_handler(repo, rx)).await?;
 
     /* postgres:///mydb?host=/var/run/postgresql */
 
     Ok(())
 }
 
-async fn socket_handler(stm: UnixStream) {
+async fn socket_handler(stream: UnixStream, repo: Repository) {
     todo!()
 }

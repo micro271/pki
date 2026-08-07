@@ -7,12 +7,10 @@ use std::{
 };
 use tokio::sync::{RwLock, mpsc::Receiver};
 
-use sqlx::PgPool;
-
 use crate::{
     app::task::{data_update, load_groups, new_group},
     models::{EventId, Severity, Status, Timestamp},
-    repository::HMessage,
+    repository::{HMessage, Repository},
 };
 
 pub const URL: &str = "http://172.30.0.153/api_jsonrpc.php";
@@ -20,7 +18,7 @@ pub const LIMIT: usize = 2000;
 
 pub type GroupType = Arc<RwLock<HashMap<String, (Arc<Timestamp>, Arc<EventId>, Vec<i64>)>>>;
 
-pub async fn data_handler(client: Arc<PgPool>, mut rx: Receiver<HMessage>) {
+pub async fn data_handler(client: Repository, mut rx: Receiver<HMessage>) {
     let mut groups = Arc::new(RwLock::new(load_groups(client.clone()).await));
     let mut interval = tokio::time::interval(Duration::from_secs(600));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -41,7 +39,7 @@ pub async fn data_handler(client: Arc<PgPool>, mut rx: Receiver<HMessage>) {
     }
 }
 
-pub async fn task(db: Arc<PgPool>, groups: &mut GroupType) {
+pub async fn task(db: Repository, groups: &mut GroupType) {
     let token = std::env::var("TOKEN").unwrap();
     let groups = {
         let tmp = groups.read().await;

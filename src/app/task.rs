@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc};
 
 use serde_json::{Value, json};
 use sqlx::{PgPool, Row};
@@ -6,10 +6,11 @@ use sqlx::{PgPool, Row};
 use crate::{
     app::{GroupType, URL},
     models::{EventId, Timestamp},
+    repository::Repository,
 };
 
 pub async fn load_groups(
-    client: Arc<PgPool>,
+    client: Repository,
 ) -> HashMap<String, (Arc<Timestamp>, Arc<EventId>, Vec<i64>)> {
     let resp = sqlx::query(
         r#"
@@ -56,7 +57,7 @@ pub async fn new_group(group: String, groups: GroupType) {
     );
 }
 
-pub async fn data_update(db: Arc<PgPool>, mut resolved: HashMap<i64, i64>) {
+pub async fn data_update(db: Repository, mut resolved: HashMap<i64, i64>) {
     let events_id = sqlx::query("SELECT eventid FROM events WHERE end_time IS NULL")
         .fetch_all(&*db)
         .await

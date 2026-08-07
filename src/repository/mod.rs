@@ -1,24 +1,20 @@
-use crate::app::data_handler;
 use sqlx::postgres::{PgPool, PgPoolOptions};
-use std::sync::Arc;
-use tokio::sync::mpsc::{Sender, channel};
+use tokio::sync::mpsc::Sender;
 
+#[derive(Debug, Clone)]
 pub struct Repository {
-    client: Arc<PgPool>,
+    client: PgPool,
     tx: Sender<HMessage>,
 }
 
 impl Repository {
-    pub async fn new(url: &str) -> Self {
+    pub async fn new(url: &str, tx: Sender<HMessage>) -> Self {
         let client = PgPoolOptions::default()
             .max_connections(5)
             .connect(url)
             .await
             .unwrap();
-        let client = Arc::new(client);
-        let (tx, rx) = channel(64);
-
-        tokio::spawn(data_handler(client.clone(), rx));
+        let client = client;
 
         Self { client, tx }
     }
@@ -29,6 +25,10 @@ impl Repository {
                 tracing::error!("{er}");
             }
         }
+    }
+
+    pub async fn get_db(&self) -> PgPool {
+        self.client.clone()
     }
 }
 
