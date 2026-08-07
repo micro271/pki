@@ -1,5 +1,9 @@
-use crate::{app::data_handler, repository::Repository};
+use crate::{
+    app::data_handler,
+    repository::{HMessage, Repository},
+};
 use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
     net::{UnixListener, UnixStream},
     sync::mpsc::channel,
 };
@@ -42,5 +46,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn socket_handler(stream: UnixStream, repo: Repository) {
-    todo!()
+    let (mut rx, _tx) = stream.into_split();
+
+    loop {
+        let mut len_buf = [0u8; 4];
+
+        if let Err(er) = rx.read_exact(&mut len_buf).await {
+            tracing::error!("{er}");
+        }
+
+        let len = u32::from_be_bytes(len_buf) as usize;
+        let mut data_buf = vec![0u8; len];
+        if let Err(er) = rx.read_exact(&mut data_buf).await {
+            tracing::error!("{er}");
+            continue;
+        }
+        let data = match serde_json::from_slice::<HMessage>(&data_buf).unwrap() {
+            HMessage::Group(e) => e,
+        };
+
+        repo.new_group(data).await;
+    }
 }

@@ -1,3 +1,4 @@
+use serde::Deserialize;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use tokio::sync::mpsc::Sender;
 
@@ -19,7 +20,7 @@ impl Repository {
         Self { client, tx }
     }
 
-    pub async fn new_group(self, group: String) {
+    pub async fn new_group(&self, group: String) {
         for i in group.split(",") {
             if let Err(er) = self.tx.send(HMessage::Group(i.to_string())).await {
                 tracing::error!("{er}");
@@ -39,6 +40,7 @@ impl std::ops::Deref for Repository {
     }
 }
 
+#[derive(Debug, Deserialize)]
 pub enum HMessage {
     Group(String),
 }
