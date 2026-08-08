@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 use tokio::sync::{RwLock, mpsc::Receiver};
+use tracing::Instrument;
 
 use crate::{
     app::task::{data_update, load_groups, new_group},
@@ -30,6 +31,7 @@ pub async fn data_handler(client: Repository, mut rx: Receiver<HMessage>) {
             }
             msg = rx.recv() => {
                 if let Some(HMessage::Group(g)) = msg {
+                    tracing::debug!("New group: {g}");
                     if !groups.read().await.contains_key(&g) {
                         tokio::spawn(new_group(g, groups.clone()));
                     }
@@ -94,12 +96,12 @@ pub async fn task(db: Repository, groups: &mut GroupType) {
                 length = events.len();
 
                 for ev in events {
-                    if ev["value"].as_i64().unwrap() == 1 {
+                    if as_i64(&ev["value"]).unwrap() == 1 {
                         problems.push_back(ev);
                     } else {
                         resolved.insert(
-                            ev["eventid"].as_i64().unwrap(),
-                            ev["clock"].as_i64().unwrap(),
+                            as_i64(&ev["eventid"]).unwrap(),
+                            as_i64(&ev["clock"]).unwrap(),
                         );
                     }
                 }
@@ -127,11 +129,11 @@ pub async fn task(db: Repository, groups: &mut GroupType) {
                 && count < len
             {
                 count += 1;
-                let r_res = ev["r_eventid"].as_i64().unwrap();
+                let r_res = as_i64(&ev["r_eventid"]).unwrap();
                 let end_time = resolved.remove(&r_res);
 
-                let eid = ev["eventid"].as_i64().unwrap();
-                let clock = ev["clock"].as_i64().unwrap();
+                let eid = as_i64(&ev["eventid"]).unwrap();
+                let clock = as_i64(&ev["clock"]).unwrap();
 
                 if eid > eventid.load(Ordering::Relaxed) {
                     eventid.store(eid, Ordering::Relaxed);
@@ -191,4 +193,8 @@ pub async fn task(db: Repository, groups: &mut GroupType) {
             data_update(db.clone(), resolved).await;
         }
     }
+}
+
+pub fn as_i64(value: &Value) -> Option<i64> {
+    value.as_str().and_then(|x| x.parse().ok())
 }

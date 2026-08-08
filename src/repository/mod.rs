@@ -1,5 +1,8 @@
 use serde::Deserialize;
-use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::{
+    Row,
+    postgres::{PgPool, PgPoolOptions},
+};
 use tokio::sync::mpsc::Sender;
 
 #[derive(Debug, Clone)]
@@ -30,6 +33,27 @@ impl Repository {
 
     pub async fn get_db(&self) -> PgPool {
         self.client.clone()
+    }
+
+    pub async fn get_eventids(&self) -> Option<Vec<i64>> {
+        sqlx::query("SELECT eventid FROM events WHERE end_time IS NULL")
+            .fetch_all(&self.client)
+            .await
+            .ok()
+            .map(|x| {
+                x.into_iter()
+                    .map(|x| x.get("eventid"))
+                    .collect::<Vec<i64>>()
+            })
+    }
+
+    pub async fn get_groupid_by_name(&self, name: &str) -> Option<i64> {
+        sqlx::query("SELECT groupid FROM zbx_groups WHERE group_name = $1")
+            .bind(name)
+            .fetch_one(&self.client)
+            .await
+            .ok()
+            .map(|x| x.get("groupid"))
     }
 }
 
