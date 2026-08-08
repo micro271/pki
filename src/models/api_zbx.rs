@@ -14,11 +14,12 @@ pub struct ErrorApiZbxResponse {
     pub error: DataErrorApiZbx,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct DataErrorApiZbx {
     pub code: i64,
     pub message: String,
-    pub data: String,
+    #[serde(default)]
+    pub data: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -26,8 +27,12 @@ pub enum ZbxError {
     #[error("request failed: {0}")]
     Request(#[from] reqwest::Error),
 
-    #[error("zabbix api error: {kind} — {data}")]
-    Api { kind: ZbxErrorKind, data: String },
+    #[error("zabbix api error: {kind} — {message}{}", data.as_deref().map(|d| format!(" ({d})")).unwrap_or_default())]
+    Api {
+        kind: ZbxErrorKind,
+        message: String,
+        data: Option<String>,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]

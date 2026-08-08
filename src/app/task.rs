@@ -205,7 +205,7 @@ async fn request_reqwest_handle<O: for<'de> Deserialize<'de>>(
             error:
                 DataErrorApiZbx {
                     code,
-                    message: _,
+                    message,
                     data,
                 },
             ..
@@ -213,6 +213,7 @@ async fn request_reqwest_handle<O: for<'de> Deserialize<'de>>(
         Err(ZbxError::Api {
             kind: code.into(),
             data,
+            message,
         })
     }
 }
