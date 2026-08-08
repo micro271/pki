@@ -1,3 +1,4 @@
+pub mod api_zbx;
 use std::sync::atomic::AtomicI64;
 
 use serde::{Deserialize, Serialize};

@@ -1,11 +1,16 @@
 use std::{collections::HashMap, sync::Arc};
 
+use reqwest::RequestBuilder;
+use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::Row;
 
 use crate::{
     app::{GroupType, URL, as_i64},
-    models::{EventId, Timestamp},
+    models::{
+        EventId, Timestamp,
+        api_zbx::{ApiZbxResponse, DataErrorApiZbx, ErrorApiZbxResponse, ZbxError},
+    },
     repository::Repository,
 };
 
@@ -80,23 +85,18 @@ pub async fn data_update(db: Repository, mut resolved: HashMap<i64, i64>) {
     });
     let token = std::env::var("TOKEN").unwrap();
     let req = reqwest::Client::new();
-    let mut res = req
-        .post(URL)
-        .json(&d)
-        .header("Authentication", format!("Bearer {token}"))
-        .send()
-        .await
-        .unwrap()
-        .json::<Value>()
-        .await
-        .unwrap();
-    let res = res.as_object_mut().unwrap();
-    match res.remove("result").unwrap() {
-        Value::Array(vec) => {
-            let mut vec_eventid = Vec::with_capacity(vec.len());
-            let mut vec_end_time = Vec::with_capacity(vec.len());
+    match request_reqwest_handle::<Vec<Value>>(
+        req.post(URL)
+            .json(&d)
+            .header("Authentication", format!("Bearer {token}")),
+    )
+    .await
+    {
+        Ok(result) => {
+            let mut vec_eventid = Vec::with_capacity(result.len());
+            let mut vec_end_time = Vec::with_capacity(result.len());
 
-            for i in vec {
+            for i in result {
                 let r_eventid = as_i64(&i["r_eventid"]).unwrap();
                 vec_eventid.push(r_eventid);
                 vec_end_time.push(resolved.remove(&r_eventid).unwrap());
@@ -123,7 +123,9 @@ pub async fn data_update(db: Repository, mut resolved: HashMap<i64, i64>) {
             .await
             .unwrap();
         }
-        _ => panic!(),
+        Err(er) => {
+            tracing::error!("{er}");
+        }
     }
 }
 
@@ -143,19 +145,19 @@ pub async fn fetch_hostids_from_zbx_api(group: &str) -> Vec<i64> {
 
     let req = reqwest::Client::new();
 
-    let resp = req
-        .post(URL)
-        .header("Authentication", format!("Bearer {token}"))
-        .json(&body_get_goup_id)
-        .send()
-        .await
-        .unwrap();
-    let resp = &mut resp.json::<Value>().await.unwrap();
-    let resp = resp.as_object_mut().unwrap();
-
-    let gids = as_i64(&resp["result"][0]["groupid"]).unwrap();
-
-    fetch_hostids(gids).await
+    match request_reqwest_handle::<Vec<Value>>(
+        req.post(URL)
+            .header("Authentication", format!("Bearer {token}"))
+            .json(&body_get_goup_id),
+    )
+    .await
+    {
+        Ok(resp) => fetch_hostids(as_i64(&resp[0]["groupid"]).unwrap()).await,
+        Err(er) => {
+            tracing::error!("{er}");
+            Vec::new()
+        }
+    }
 }
 
 pub async fn fetch_hostids_with_group_name(db: Repository, group: &str) -> Vec<i64> {
@@ -177,15 +179,40 @@ pub async fn fetch_hostids(groupid: i64) -> Vec<i64> {
     });
 
     let req = reqwest::Client::new();
-    let resp = req.post(URL).json(&d).send().await.unwrap();
-    let mut resp = resp.json::<Value>().await.unwrap();
-    let resp = resp.as_object_mut().unwrap();
 
-    resp.remove("result")
-        .unwrap()
-        .as_array()
-        .unwrap()
-        .into_iter()
-        .map(|x| as_i64(&x["hostid"]).unwrap())
-        .collect::<Vec<i64>>()
+    match request_reqwest_handle::<Vec<Value>>(req.post(URL).json(&d)).await {
+        Ok(result) => result
+            .into_iter()
+            .map(|x| as_i64(&x["hostid"]).unwrap())
+            .collect::<Vec<i64>>(),
+        Err(er) => {
+            tracing::error!("{er}");
+            Vec::new()
+        }
+    }
+}
+
+async fn request_reqwest_handle<O: for<'de> Deserialize<'de>>(
+    req: RequestBuilder,
+) -> Result<O, ZbxError> {
+    let res = req.send().await?;
+
+    if res.status().is_success() {
+        let ApiZbxResponse { result, .. } = res.json::<ApiZbxResponse<O>>().await?;
+        Ok(result)
+    } else {
+        let ErrorApiZbxResponse {
+            error:
+                DataErrorApiZbx {
+                    code,
+                    message: _,
+                    data,
+                },
+            ..
+        } = res.json::<ErrorApiZbxResponse>().await?;
+        Err(ZbxError::Api {
+            kind: code.into(),
+            data,
+        })
+    }
 }

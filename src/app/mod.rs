@@ -6,11 +6,10 @@ use std::{
     time::Duration,
 };
 use tokio::sync::{RwLock, mpsc::Receiver};
-use tracing::Instrument;
 
 use crate::{
     app::task::{data_update, load_groups, new_group},
-    models::{EventId, Severity, Status, Timestamp},
+    models::{EventId, Severity, Status, Timestamp, api_zbx::ApiZbxResponse},
     repository::{HMessage, Repository},
 };
 
@@ -86,16 +85,13 @@ pub async fn task(db: Repository, groups: &mut GroupType) {
                 .unwrap();
 
             let status_code = resp.status();
-            if status_code == 200 {
-                let mut events: Value = resp.json().await.unwrap();
-                let events = match events.as_object_mut().unwrap().remove("result").unwrap() {
-                    Value::Array(val) => val,
-                    _ => panic!(""),
-                };
+            if status_code.is_success() {
+                let ApiZbxResponse { result, .. } =
+                    resp.json::<ApiZbxResponse<Vec<Value>>>().await.unwrap();
 
-                length = events.len();
+                length = result.len();
 
-                for ev in events {
+                for ev in result {
                     if as_i64(&ev["value"]).unwrap() == 1 {
                         problems.push_back(ev);
                     } else {
