@@ -75,7 +75,7 @@ pub async fn data_update(db: Repository, mut resolved: HashMap<i64, i64>) -> boo
     match request_reqwest_handle::<Vec<Value>>(
         req.post(URL)
             .json(&d)
-            .header("Authentication", format!("Bearer {token}")),
+            .header("Authorization", format!("Bearer {token}")),
     )
     .await
     {
@@ -136,7 +136,7 @@ pub async fn fetch_hostids_from_zbx_api(group: &str) -> Vec<i64> {
 
     match request_reqwest_handle::<Vec<Value>>(
         req.post(URL)
-            .header("Authentication", format!("Bearer {token}"))
+            .header("Authorization", format!("Bearer {token}"))
             .json(&body_get_goup_id),
     )
     .await
