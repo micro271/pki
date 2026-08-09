@@ -1,17 +1,18 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ApiZbxResponse<T> {
-    pub id: i32,
-    pub jsonrpc: String,
-    pub result: T,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ErrorApiZbxResponse {
-    pub id: i32,
-    pub jsonrpc: String,
-    pub error: DataErrorApiZbx,
+#[derive(Deserialize, Debug)]
+#[serde(untagged)]
+pub enum ZbxResponse<T> {
+    Ok {
+        jsonrpc: String,
+        result: T,
+        id: i64,
+    },
+    Err {
+        jsonrpc: String,
+        error: DataErrorApiZbx,
+        id: i64,
+    },
 }
 
 #[derive(Deserialize, Debug)]

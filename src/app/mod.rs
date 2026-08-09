@@ -11,10 +11,7 @@ use tracing::Instrument;
 
 use crate::{
     app::task::{data_update, fetch_hostids_from_zbx_api, load_groups},
-    models::{
-        GroupInfo, Severity, Status,
-        api_zbx::{ApiZbxResponse, ErrorApiZbxResponse},
-    },
+    models::{GroupInfo, Severity, Status, api_zbx::ZbxResponse},
     repository::{HMessage, Repository},
 };
 
@@ -86,50 +83,41 @@ pub async fn task(db: Repository, groups: Group) {
         let req = reqwest::Client::default();
         let resp = req
             .post(URL)
-            .header("Authentication", format!("Bearer {token}"))
+            .header("Authorization", format!("Bearer {token}"))
             .json(&d)
             .send()
             .await
             .unwrap();
 
-        let status_code = resp.status();
         let mut this_eid = None;
         let mut this_from = None;
-        if status_code.is_success() {
-            match resp.json::<ApiZbxResponse<Vec<Value>>>().await {
-                Ok(ApiZbxResponse { result, .. }) => {
-                    length = result.len();
-                    this_eid = result
-                        .last()
-                        .and_then(|x| as_i64(&x["eventid"]).map(|x| x + 1));
-                    this_from = result.last().and_then(|x| as_i64(&x["clock"]));
-                    for ev in result {
-                        if as_i64(&ev["value"]).unwrap() == 1 {
-                            problems.push_back(ev);
-                        } else {
-                            resolved.insert(
-                                as_i64(&ev["eventid"]).unwrap(),
-                                as_i64(&ev["clock"]).unwrap(),
-                            );
-                        }
+        match resp.json::<ZbxResponse<Vec<Value>>>().await {
+            Ok(ZbxResponse::Ok { result, .. }) => {
+                length = result.len();
+                this_eid = result
+                    .last()
+                    .and_then(|x| as_i64(&x["eventid"]).map(|x| x + 1));
+                this_from = result.last().and_then(|x| as_i64(&x["clock"]));
+                for ev in result {
+                    if as_i64(&ev["value"]).unwrap() == 1 {
+                        problems.push_back(ev);
+                    } else {
+                        resolved.insert(
+                            as_i64(&ev["eventid"]).unwrap(),
+                            as_i64(&ev["clock"]).unwrap(),
+                        );
                     }
                 }
-                Err(er) => {
-                    tracing::error!("Parse error: {er}");
-                    length = 0;
-                }
-            };
-        } else {
-            match resp.json::<ErrorApiZbxResponse>().await {
-                Ok(er) => {
-                    tracing::error!("{er:?}");
-                }
-                Err(er) => {
-                    tracing::error!("{er}");
-                }
             }
-            length = 0;
-        }
+            Ok(ZbxResponse::Err { error, .. }) => {
+                tracing::error!("{error:?}");
+                length = 0;
+            }
+            Err(er) => {
+                tracing::error!("Parse error: {er:?}");
+                length = 0;
+            }
+        };
 
         if !problems.is_empty() {
             let len = problems.len();
@@ -203,12 +191,15 @@ pub async fn task(db: Repository, groups: Group) {
                     );
                 }
                 Err(er) => {
-                    tracing::error!("Insert error: {er}");
+                    tracing::error!("Insert error: {er:?}");
                     continue;
                 }
             }
         }
-        data_update(db.clone(), resolved.drain().collect()).await;
+
+        if !resolved.is_empty() {
+            data_update(db.clone(), resolved.drain().collect()).await;
+        }
 
         group_meta.last_event = this_eid.unwrap();
         group_meta.last_start = this_from.unwrap();

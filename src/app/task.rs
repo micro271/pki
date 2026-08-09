@@ -10,7 +10,7 @@ use crate::{
     app::{URL, as_i64},
     models::{
         GroupInfo,
-        api_zbx::{ApiZbxResponse, DataErrorApiZbx, ErrorApiZbxResponse, ZbxError},
+        api_zbx::{DataErrorApiZbx, ZbxError, ZbxResponse},
     },
     repository::Repository,
 };
@@ -186,11 +186,9 @@ async fn request_reqwest_handle<O: for<'de> Deserialize<'de>>(
 ) -> Result<O, ZbxError> {
     let res = req.send().await?;
 
-    if res.status().is_success() {
-        let ApiZbxResponse { result, .. } = res.json::<ApiZbxResponse<O>>().await?;
-        Ok(result)
-    } else {
-        let ErrorApiZbxResponse {
+    match res.json::<ZbxResponse<O>>().await? {
+        ZbxResponse::Ok { result, .. } => Ok(result),
+        ZbxResponse::Err {
             error:
                 DataErrorApiZbx {
                     code,
@@ -198,11 +196,10 @@ async fn request_reqwest_handle<O: for<'de> Deserialize<'de>>(
                     data,
                 },
             ..
-        } = res.json::<ErrorApiZbxResponse>().await?;
-        Err(ZbxError::Api {
+        } => Err(ZbxError::Api {
             kind: code.into(),
             data,
             message,
-        })
+        }),
     }
 }
