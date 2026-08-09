@@ -78,6 +78,9 @@ pub async fn task(db: Repository, groups: Group) {
                     .last()
                     .and_then(|x| as_i64(&x["eventid"]).map(|x| x + 1));
                 this_from = result.last().and_then(|x| as_i64(&x["clock"]));
+                tracing::info!(
+                    "Number of Events: {length}; last eventid: {this_eid:?}; last_from: {this_from:?}"
+                );
 
                 for ev in result {
                     if as_i64(&ev["value"]).unwrap() == 1 {
@@ -128,7 +131,7 @@ pub async fn task(db: Repository, groups: Group) {
                         .and_then(|x| x.parse::<i32>().ok())
                         .unwrap(),
                 ));
-                triggers.push(ev["trigger"].as_str().unwrap().to_string());
+                triggers.push(ev["name"].as_str().unwrap().to_string());
                 start_times.push(as_i64(&ev["clock"]).unwrap());
                 opdatas.push(ev["opdata"].as_str().unwrap().to_string());
                 end_times.push(end_time);
@@ -142,7 +145,7 @@ pub async fn task(db: Repository, groups: Group) {
             let resp = sqlx::query(
                 r#"
                         INSERT INTO events
-                            (eventid, host, severity, trigger, start_time, opdata, end_time, status)
+                            (eventid, host, severity, trigger_name, start_time, opdata, end_time, status)
                         SELECT * FROM UNNEST(
                             $1::bigint[],
                             $2::text[],
