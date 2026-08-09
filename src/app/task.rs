@@ -156,6 +156,7 @@ pub async fn fetch_hostids_with_group_name(db: Repository, group: &str) -> Vec<i
 }
 
 pub async fn fetch_hostids(groupid: i64) -> Vec<i64> {
+    let token = std::env::var("TOKEN").unwrap();
     let d = json!({
         "jsonrpc": "2.0",
         "method": "host.get",
@@ -169,7 +170,13 @@ pub async fn fetch_hostids(groupid: i64) -> Vec<i64> {
 
     let req = reqwest::Client::new();
 
-    match request_reqwest_handle::<Vec<Value>>(req.post(URL).json(&d)).await {
+    match request_reqwest_handle::<Vec<Value>>(
+        req.post(URL)
+            .header("Authorization", format!("Bearer {token}"))
+            .json(&d),
+    )
+    .await
+    {
         Ok(result) => result
             .into_iter()
             .map(|x| as_i64(&x["hostid"]).unwrap())
