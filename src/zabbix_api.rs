@@ -5,6 +5,7 @@ use crate::{
 use reqwest::RequestBuilder;
 use serde::Deserialize;
 use serde_json::json;
+
 pub struct ZbxApi;
 
 impl ZbxApi {

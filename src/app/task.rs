@@ -15,16 +15,16 @@ pub async fn load_groups(repo: Repository) -> HashMap<String, Arc<RwLock<GroupIn
     let resp = sqlx::query(
         r#"
         SELECT 
-            g.group_name as group,
-            array_agg(h.host_id) as hosts,
+            g.name as group,
+            array_agg(h.hostid) as hosts,
             MAX(ev.start_time) as latest_start,
             MAX(ev.end_time) as latest_end,
             MAX(ev.eventid) as latest_eventid
         FROM zbx_groups g
-        JOIN zbx_group_host gh ON (g.group_name = gh.group_name)
+        JOIN zbx_group_host gh ON (g.name = gh.group_name)
         JOIN zbx_hosts h ON (gh.host = h.host)
         JOIN events ev ON (h.host = ev.host)
-        GROUP BY g.group_name
+        GROUP BY g.name
     "#,
     )
     .fetch_all(&*repo)

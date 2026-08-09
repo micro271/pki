@@ -1,14 +1,17 @@
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
+use serde_json::Value;
 
 #[derive(Debug, Deserialize)]
 pub struct ZbxHost {
     pub host: String,
+    #[serde(deserialize_with = "de_i64_from_str_or_num")]
     pub hostid: i64,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ZbxGroup {
     pub name: String,
+    #[serde(deserialize_with = "de_i64_from_str_or_num")]
     pub groupid: i64,
 }
 
@@ -71,5 +74,23 @@ impl From<i64> for ZbxErrorKind {
             -32500 => ZbxErrorKind::ApplicationError,
             other => ZbxErrorKind::Unknown(other),
         }
+    }
+}
+
+pub fn de_i64_from_str_or_num<'de, D>(deserializer: D) -> Result<i64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let v = Value::deserialize(deserializer)?;
+    match v {
+        Value::Number(n) => n
+            .as_i64()
+            .ok_or_else(|| serde::de::Error::custom("número fuera de rango para i64")),
+        Value::String(s) => s.parse::<i64>().map_err(|e| {
+            serde::de::Error::custom(format!("no se pudo parsear '{s}' como i64: {e}"))
+        }),
+        other => Err(serde::de::Error::custom(format!(
+            "se esperaba número o string, se recibió: {other:?}"
+        ))),
     }
 }
