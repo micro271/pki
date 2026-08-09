@@ -1,18 +1,14 @@
 use std::{collections::HashMap, sync::Arc};
 
-use reqwest::RequestBuilder;
-use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::Row;
 use tokio::sync::RwLock;
 
 use crate::{
-    app::{URL, as_i64},
-    models::{
-        GroupInfo,
-        api_zbx::{DataErrorApiZbx, ZbxError, ZbxResponse},
-    },
+    app::{GroupType, URL, as_i64},
+    models::GroupInfo,
     repository::Repository,
+    zabbix_api::{ZbxApi, request_reqwest_handle},
 };
 
 pub async fn load_groups(repo: Repository) -> HashMap<String, Arc<RwLock<GroupInfo>>> {
@@ -118,95 +114,52 @@ pub async fn data_update(db: Repository, mut resolved: HashMap<i64, i64>) -> boo
     }
 }
 
-pub async fn fetch_hostids_from_zbx_api(group: &str) -> Vec<i64> {
-    let token = std::env::var("TOKEN").unwrap();
-    let body_get_goup_id = json!({
-        "jsonrpc":"2.0",
-        "method":"hostgroup.get",
-        "params":{
-                "output":["groupid","name"],
-                "filter":{
-                    "name": group
-                }
+pub async fn new_group(repo: Repository, name: String, groups: GroupType) {
+    let from = (time::OffsetDateTime::now_utc() - time::Duration::days(30)).unix_timestamp();
+    let group = ZbxApi::get_group(&name).await.unwrap();
+    tracing::debug!("Group info: {group:?}");
+    let hosts = ZbxApi::get_hosts(group.groupid).await.unwrap();
+    tracing::debug!("Hosts: {hosts:?}");
+    let (names, hids): (Vec<String>, Vec<i64>) =
+        hosts.into_iter().map(|x| (x.host, x.hostid)).unzip();
+
+    let mut repo = repo.begin().await.unwrap();
+
+    let tr = async {
+        sqlx::query("INSERT INTO zbx_groups (name, groupid) VALUES ($1, $2)")
+            .bind(group.name)
+            .bind(group.groupid)
+            .execute(&mut *repo)
+            .await?;
+
+        sqlx::query("INSERT INTO zbx_hosts VALUES (host, hostid) SELECT * FROM UNNEST ($1::TEXT[], $2::BIGINT[])").bind(&names).bind(&hids).execute(&mut *repo).await?;
+
+        sqlx::query(
+            "INSERT INTO zbx_group_host (group, host) SELECT $1, host FROM UNNEST ($2::TEXT[]) ",
+        )
+        .bind(&name)
+        .bind(names)
+        .execute(&mut *repo)
+        .await?;
+
+        Result::<(), sqlx::Error>::Ok(())
+    };
+
+    match tr.await {
+        Ok(()) => match repo.commit().await {
+            Ok(()) => {
+                groups
+                    .write()
+                    .await
+                    .insert(name, Arc::new(RwLock::new(GroupInfo::new(from, 0, hids))));
+            }
+            Err(er) => tracing::error!("{er:?}"),
         },
-        "id":1
-    });
-
-    let req = reqwest::Client::new();
-
-    match request_reqwest_handle::<Vec<Value>>(
-        req.post(URL)
-            .header("Authorization", format!("Bearer {token}"))
-            .json(&body_get_goup_id),
-    )
-    .await
-    {
-        Ok(resp) => fetch_hostids(as_i64(&resp[0]["groupid"]).unwrap()).await,
         Err(er) => {
-            tracing::error!("{er}");
-            Vec::new()
+            tracing::error!("{er:?}");
+            if let Err(er) = repo.rollback().await {
+                tracing::error!("{:?}", er);
+            }
         }
-    }
-}
-
-pub async fn fetch_hostids_with_group_name(db: Repository, group: &str) -> Vec<i64> {
-    let groupid: i64 = db.get_groupid_by_name(group).await.unwrap();
-
-    fetch_hostids(groupid).await
-}
-
-pub async fn fetch_hostids(groupid: i64) -> Vec<i64> {
-    let token = std::env::var("TOKEN").unwrap();
-    let d = json!({
-        "jsonrpc": "2.0",
-        "method": "host.get",
-        "params": {
-            "output": ["hostid", "host", "name"],
-            "groupids": groupid,
-            "selectHostGroups": ["groupid", "name"]
-        },
-        "id": 1
-    });
-
-    let req = reqwest::Client::new();
-
-    match request_reqwest_handle::<Vec<Value>>(
-        req.post(URL)
-            .header("Authorization", format!("Bearer {token}"))
-            .json(&d),
-    )
-    .await
-    {
-        Ok(result) => result
-            .into_iter()
-            .map(|x| as_i64(&x["hostid"]).unwrap())
-            .collect::<Vec<i64>>(),
-        Err(er) => {
-            tracing::error!("{er}");
-            Vec::new()
-        }
-    }
-}
-
-async fn request_reqwest_handle<O: for<'de> Deserialize<'de>>(
-    req: RequestBuilder,
-) -> Result<O, ZbxError> {
-    let res = req.send().await?;
-
-    match res.json::<ZbxResponse<O>>().await? {
-        ZbxResponse::Ok { result, .. } => Ok(result),
-        ZbxResponse::Err {
-            error:
-                DataErrorApiZbx {
-                    code,
-                    message,
-                    data,
-                },
-            ..
-        } => Err(ZbxError::Api {
-            kind: code.into(),
-            data,
-            message,
-        }),
     }
 }

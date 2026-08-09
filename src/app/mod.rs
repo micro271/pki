@@ -1,6 +1,6 @@
 pub mod task;
 use futures::stream::{self, StreamExt};
-use serde_json::{Value, from_value, json};
+use serde_json::{Value, json};
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
@@ -10,7 +10,7 @@ use tokio::sync::{RwLock, mpsc::Receiver};
 use tracing::Instrument;
 
 use crate::{
-    app::task::{data_update, fetch_hostids_from_zbx_api, load_groups},
+    app::task::{data_update, load_groups, new_group},
     models::{GroupInfo, Severity, Status, api_zbx::ZbxResponse},
     repository::{HMessage, Repository},
 };
@@ -39,9 +39,7 @@ pub async fn data_handler(repo: Repository, mut rx: Receiver<HMessage>) {
                 if let Some(HMessage::Group(g)) = msg {
                     tracing::debug!("New group: {g}");
                     if !groups.read().await.contains_key(&g) {
-                        let from = (time::OffsetDateTime::now_utc() - time::Duration::days(30)).unix_timestamp();
-                        let hostids = fetch_hostids_from_zbx_api(&g).await;
-                        groups.write().await.insert(g, Arc::new(RwLock::new(GroupInfo::new(from, 0, hostids))));
+                        tokio::spawn(new_group(repo.clone(), g, groups.clone()));
                     } else {
                         tracing::info!("Group {g} already exists");
                     }
@@ -98,6 +96,7 @@ pub async fn task(db: Repository, groups: Group) {
                     .last()
                     .and_then(|x| as_i64(&x["eventid"]).map(|x| x + 1));
                 this_from = result.last().and_then(|x| as_i64(&x["clock"]));
+
                 for ev in result {
                     if as_i64(&ev["value"]).unwrap() == 1 {
                         problems.push_back(ev);
@@ -131,7 +130,7 @@ pub async fn task(db: Repository, groups: Group) {
             let mut end_times = Vec::with_capacity(len);
             let mut statuses = Vec::with_capacity(len);
 
-            while let Some(mut ev) = problems.pop_front()
+            while let Some(ev) = problems.pop_front()
                 && count < len
             {
                 count += 1;
@@ -145,7 +144,12 @@ pub async fn task(db: Repository, groups: Group) {
 
                 eventids.push(as_i64(&ev["eventid"]).unwrap());
                 nodos.push(ev["host"].to_string());
-                severities.push(from_value::<Severity>(ev["severity"].take()).unwrap());
+                severities.push(Severity::from_number(
+                    ev["severity"]
+                        .as_str()
+                        .and_then(|x| x.parse::<i32>().ok())
+                        .unwrap(),
+                ));
                 triggers.push(ev["trigger"].to_string());
                 start_times.push(as_i64(&ev["clock"]).unwrap());
                 opdatas.push(ev["opdata"].to_string());

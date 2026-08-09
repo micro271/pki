@@ -1,5 +1,4 @@
 pub mod api_zbx;
-use std::sync::{Arc, atomic::AtomicI64};
 
 use serde::{Deserialize, Serialize};
 use sqlx::prelude::FromRow;

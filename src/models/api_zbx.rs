@@ -1,5 +1,17 @@
 use serde::Deserialize;
 
+#[derive(Debug, Deserialize)]
+pub struct ZbxHost {
+    pub host: String,
+    pub hostid: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ZbxGroup {
+    pub name: String,
+    pub groupid: i64,
+}
+
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]
 pub enum ZbxResponse<T> {

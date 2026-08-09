@@ -33,10 +33,6 @@ impl Repository {
         }
     }
 
-    pub async fn get_db(&self) -> PgPool {
-        self.client.clone()
-    }
-
     pub async fn get_unresolved_events(&self) -> Option<Vec<Event>> {
         sqlx::query("SELECT eventid FROM events WHERE end_time IS NULL")
             .fetch_all(&self.client)

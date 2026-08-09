@@ -14,7 +14,7 @@ CREATE TYPE severity_level AS ENUM (
 
 CREATE TABLE IF NOT EXISTS zbx_hosts (
     host TEXT PRIMARY KEY,
-    host_id BIGINT NOT NULL UNIQUE
+    hostid BIGINT NOT NULL UNIQUE
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -29,12 +29,12 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE TABLE IF NOT EXISTS zbx_groups (
-    group_name TEXT PRIMARY KEY,
-    group_id BIGINT NOT NULL UNIQUE
+    name TEXT PRIMARY KEY,
+    groupid BIGINT NOT NULL UNIQUE
 );
 
 CREATE TABLE IF NOT EXISTS zbx_group_host (
-    group_name TEXT NOT NULL REFERENCES zbx_groups(group_name) ON DELETE CASCADE,
+    group_name TEXT NOT NULL REFERENCES zbx_groups(name) ON DELETE CASCADE,
     host TEXT NOT NULL REFERENCES zbx_hosts(host) ON DELETE CASCADE,
     PRIMARY KEY (group_name, host)
 );

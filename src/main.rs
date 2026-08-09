@@ -9,6 +9,7 @@ use tracing_subscriber::EnvFilter;
 pub mod app;
 pub mod models;
 pub mod repository;
+pub mod zabbix_api;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
