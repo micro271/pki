@@ -35,8 +35,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let span = tracing::info_span!("{MAIN_TASK}");
     tokio::spawn(data_handler(repo, rx).instrument(span)).await?;
 
-    /* postgres:///mydb?host=/var/run/postgresql */
-
     Ok(())
 }
 

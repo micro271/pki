@@ -1,9 +1,11 @@
 use serde::Deserialize;
 use sqlx::{
-    Row,
+    FromRow, Row,
     postgres::{PgPool, PgPoolOptions},
 };
 use tokio::sync::mpsc::Sender;
+
+use crate::models::Event;
 
 #[derive(Debug, Clone)]
 pub struct Repository {
@@ -14,7 +16,7 @@ pub struct Repository {
 impl Repository {
     pub async fn new(url: &str, tx: Sender<HMessage>) -> Self {
         let client = PgPoolOptions::default()
-            .max_connections(5)
+            .max_connections(15)
             .connect(url)
             .await
             .unwrap();
@@ -35,15 +37,15 @@ impl Repository {
         self.client.clone()
     }
 
-    pub async fn get_eventids(&self) -> Option<Vec<i64>> {
+    pub async fn get_unresolved_events(&self) -> Option<Vec<Event>> {
         sqlx::query("SELECT eventid FROM events WHERE end_time IS NULL")
             .fetch_all(&self.client)
             .await
             .ok()
             .map(|x| {
                 x.into_iter()
-                    .map(|x| x.get("eventid"))
-                    .collect::<Vec<i64>>()
+                    .filter_map(|x| Event::from_row(&x).ok())
+                    .collect()
             })
     }
 

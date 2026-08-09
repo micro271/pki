@@ -4,19 +4,18 @@ use reqwest::RequestBuilder;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::Row;
+use tokio::sync::RwLock;
 
 use crate::{
-    app::{GroupType, URL, as_i64},
+    app::{URL, as_i64},
     models::{
-        EventId, Timestamp,
+        GroupInfo,
         api_zbx::{ApiZbxResponse, DataErrorApiZbx, ErrorApiZbxResponse, ZbxError},
     },
     repository::Repository,
 };
 
-pub async fn load_groups(
-    client: Repository,
-) -> HashMap<String, (Arc<Timestamp>, Arc<EventId>, Vec<i64>)> {
+pub async fn load_groups(repo: Repository) -> HashMap<String, Arc<RwLock<GroupInfo>>> {
     let resp = sqlx::query(
         r#"
         SELECT 
@@ -32,7 +31,7 @@ pub async fn load_groups(
         GROUP BY g.group_name
     "#,
     )
-    .fetch_all(&*client)
+    .fetch_all(&*repo)
     .await
     .unwrap();
 
@@ -40,33 +39,21 @@ pub async fn load_groups(
         .map(|x| {
             let et: i64 = x.get("latest_end");
             let st: i64 = x.get("latest_start");
-            let tm = Arc::new(Timestamp::new(et.max(st)));
             (
                 x.get("group"),
-                (
-                    tm,
-                    Arc::new(EventId::new(x.get("latest_eventid"))),
-                    x.get("hosts"),
-                ),
+                Arc::new(RwLock::new(GroupInfo::new(st, et, x.get("hosts")))),
             )
         })
         .collect::<HashMap<_, _>>()
 }
 
-pub async fn new_group(group: String, groups: GroupType) {
-    let now = (time::OffsetDateTime::now_utc() - time::Duration::days(30)).unix_timestamp();
-    let h = fetch_hostids_from_zbx_api(&group).await;
-    groups.write().await.insert(
-        {
-            tracing::info!("New group added: {group}");
-            group
-        },
-        (Arc::new(Timestamp::new(now)), Arc::new(EventId::new(0)), h),
-    );
-}
+pub async fn data_update(db: Repository, mut resolved: HashMap<i64, i64>) -> bool {
+    let events = db.get_unresolved_events().await.unwrap();
 
-pub async fn data_update(db: Repository, mut resolved: HashMap<i64, i64>) {
-    let events_id = db.get_eventids().await.unwrap();
+    tracing::debug!("events unresolved from now: {events:#?}");
+    tracing::debug!("To update {resolved:#?}");
+
+    let event_ids = events.into_iter().map(|x| x.eventid).collect::<Vec<_>>();
 
     let d = json!({
         "jsonrpc":"2.0",
@@ -75,7 +62,7 @@ pub async fn data_update(db: Repository, mut resolved: HashMap<i64, i64>) {
                 "output":"extend",
                 "source":0,
                 "object":0,
-                "eventids": events_id,
+                "eventids": event_ids,
                 "selectHosts": ["hostid","host"],
                 "selectRelatedObject": ["triggerid","description","priority"],
                 "sortfield": ["clock", "eventid"],
@@ -106,7 +93,7 @@ pub async fn data_update(db: Repository, mut resolved: HashMap<i64, i64>) {
                 UPDATE events e
                 SET 
                     status = 'resolved'::event_statis,
-                    end_time = tmp.end_time,
+                    end_time = tmp.end_time
                 FROM (
                     SELECT * 
                     FROM UNNEST (
@@ -122,9 +109,11 @@ pub async fn data_update(db: Repository, mut resolved: HashMap<i64, i64>) {
             .execute(&*db)
             .await
             .unwrap();
+            true
         }
         Err(er) => {
             tracing::error!("{er}");
+            false
         }
     }
 }

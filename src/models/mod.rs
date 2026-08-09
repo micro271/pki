@@ -1,9 +1,27 @@
 pub mod api_zbx;
-use std::sync::atomic::AtomicI64;
+use std::sync::{Arc, atomic::AtomicI64};
 
 use serde::{Deserialize, Serialize};
+use sqlx::prelude::FromRow;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
+pub struct GroupInfo {
+    pub last_start: i64,
+    pub last_event: i64,
+    pub hosts: Vec<i64>,
+}
+
+impl GroupInfo {
+    pub fn new(start: i64, evendid: i64, hosts: Vec<i64>) -> Self {
+        Self {
+            last_start: start,
+            last_event: evendid,
+            hosts,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct Event {
     pub eventid: i64,
     pub nodo: String,
@@ -108,43 +126,5 @@ impl Severity {
             5 => Severity::Disaster,
             _ => Severity::NotClassifier,
         })
-    }
-}
-
-#[derive(Debug, Serialize)]
-pub struct Timestamp(AtomicI64);
-
-impl Timestamp {
-    pub fn new(n: i64) -> Self {
-        Self(AtomicI64::new(n))
-    }
-}
-
-impl std::ops::Deref for Timestamp {
-    type Target = AtomicI64;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-#[derive(Debug, Serialize)]
-pub struct EventId(AtomicI64);
-
-impl EventId {
-    pub fn new(n: i64) -> Self {
-        Self(AtomicI64::new(n))
-    }
-}
-
-impl std::ops::Deref for EventId {
-    type Target = AtomicI64;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::ops::DerefMut for EventId {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
