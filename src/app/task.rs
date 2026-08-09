@@ -6,7 +6,7 @@ use tokio::sync::RwLock;
 
 use crate::{
     app::{GroupType, URL, as_i64},
-    models::GroupInfo,
+    models::{GroupInfo, Status},
     repository::Repository,
     zabbix_api::{ZbxApi, request_reqwest_handle},
 };
@@ -88,18 +88,19 @@ pub async fn data_update(db: Repository, mut resolved: HashMap<i64, i64>) -> boo
                 r"
                 UPDATE events e
                 SET 
-                    status = 'resolved'::event_statis,
+                    status = tmp.status,
                     end_time = tmp.end_time
                 FROM (
-                    SELECT * 
+                    SELECT $1::event_status, eid, st
                     FROM UNNEST (
-                        $1::bigint[],
-                        $2::bigint[]
-                    ) as tmp(eventid, end_time)
-                )
+                        $2::bigint[],
+                        $3::bigint[]
+                    ) AS u(eid, st)
+                ) AS tmp(status, eventid, end_time)
                 WHERE e.eventid = tmp.eventid
             ",
             )
+            .bind(Status::Resolved)
             .bind(&vec_eventid)
             .bind(&vec_end_time)
             .execute(&*db)
@@ -132,10 +133,16 @@ pub async fn new_group(repo: Repository, name: String, groups: GroupType) {
             .execute(&mut *repo)
             .await?;
 
-        sqlx::query("INSERT INTO zbx_hosts VALUES (host, hostid) SELECT * FROM UNNEST ($1::TEXT[], $2::BIGINT[])").bind(&names).bind(&hids).execute(&mut *repo).await?;
+        sqlx::query(
+            "INSERT INTO zbx_hosts (host, hostid) SELECT * FROM UNNEST ($1::TEXT[], $2::BIGINT[])",
+        )
+        .bind(&names)
+        .bind(&hids)
+        .execute(&mut *repo)
+        .await?;
 
         sqlx::query(
-            "INSERT INTO zbx_group_host (group, host) SELECT $1, host FROM UNNEST ($2::TEXT[]) ",
+            "INSERT INTO zbx_group_host (group_name, host) SELECT $1, h FROM UNNEST ($2::TEXT[]) AS h",
         )
         .bind(&name)
         .bind(names)

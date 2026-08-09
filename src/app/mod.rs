@@ -1,6 +1,6 @@
 pub mod task;
 use futures::stream::{self, StreamExt};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
@@ -11,8 +11,9 @@ use tracing::Instrument;
 
 use crate::{
     app::task::{data_update, load_groups, new_group},
-    models::{GroupInfo, Severity, Status, api_zbx::ZbxResponse},
+    models::{GroupInfo, Severity, Status},
     repository::{HMessage, Repository},
+    zabbix_api::ZbxApi,
 };
 
 pub const URL: &str = "http://172.30.0.153/api_jsonrpc.php";
@@ -50,7 +51,7 @@ pub async fn data_handler(repo: Repository, mut rx: Receiver<HMessage>) {
 }
 
 pub async fn task(db: Repository, groups: Group) {
-    let token = std::env::var("TOKEN").unwrap();
+    tracing::info!("Start");
     let mut group_meta = groups.write().await;
 
     let mut length = 2000;
@@ -59,38 +60,19 @@ pub async fn task(db: Repository, groups: Group) {
     let to = time::OffsetDateTime::now_utc().unix_timestamp();
 
     while LIMIT == length {
-        let d = json!({
-            "jsonrpc":"2.0",
-            "method":"event.get",
-            "params":{
-                    "output":"extend",
-                    "source":0,
-                    "object":0,
-                    "hostids": &group_meta.hosts,
-                    "time_from": &group_meta.last_start,
-                    "time_till": to,
-                    "selectHosts": ["hostid","host"],
-                    "selectRelatedObject": ["triggerid","description","priority"],
-                    "sortfield": ["clock", "eventid"],
-                    "sortorder":"ASC",
-                    "eventid_from": &group_meta.last_event,
-                    "limit": LIMIT
-            },
-            "id":1
-        });
-        let req = reqwest::Client::default();
-        let resp = req
-            .post(URL)
-            .header("Authorization", format!("Bearer {token}"))
-            .json(&d)
-            .send()
-            .await
-            .unwrap();
+        let mut ev = ZbxApi::get_events::<Value>();
+
+        ev.hostids(&group_meta.hosts);
+        ev.from(&group_meta.last_start);
+        ev.until(to);
+        ev.eventid(&group_meta.last_event);
+        ev.limit(LIMIT);
 
         let mut this_eid = None;
         let mut this_from = None;
-        match resp.json::<ZbxResponse<Vec<Value>>>().await {
-            Ok(ZbxResponse::Ok { result, .. }) => {
+
+        match ev.get().await {
+            Ok(result) => {
                 length = result.len();
                 this_eid = result
                     .last()
@@ -108,10 +90,6 @@ pub async fn task(db: Repository, groups: Group) {
                     }
                 }
             }
-            Ok(ZbxResponse::Err { error, .. }) => {
-                tracing::error!("{error:?}");
-                length = 0;
-            }
             Err(er) => {
                 tracing::error!("Parse error: {er:?}");
                 length = 0;
@@ -122,7 +100,7 @@ pub async fn task(db: Repository, groups: Group) {
             let len = problems.len();
             let mut count = 0;
             let mut eventids = Vec::with_capacity(len);
-            let mut nodos = Vec::with_capacity(len);
+            let mut host = Vec::with_capacity(len);
             let mut severities = Vec::with_capacity(len);
             let mut triggers = Vec::with_capacity(len);
             let mut start_times = Vec::with_capacity(len);
@@ -143,16 +121,16 @@ pub async fn task(db: Repository, groups: Group) {
                 }
 
                 eventids.push(as_i64(&ev["eventid"]).unwrap());
-                nodos.push(ev["host"].to_string());
+                host.push(ev["hosts"][0]["host"].as_str().unwrap().to_string());
                 severities.push(Severity::from_number(
                     ev["severity"]
                         .as_str()
                         .and_then(|x| x.parse::<i32>().ok())
                         .unwrap(),
                 ));
-                triggers.push(ev["trigger"].to_string());
+                triggers.push(ev["trigger"].as_str().unwrap().to_string());
                 start_times.push(as_i64(&ev["clock"]).unwrap());
-                opdatas.push(ev["opdata"].to_string());
+                opdatas.push(ev["opdata"].as_str().unwrap().to_string());
                 end_times.push(end_time);
                 statuses.push(if end_time.is_some() {
                     Status::Resolved
@@ -164,21 +142,21 @@ pub async fn task(db: Repository, groups: Group) {
             let resp = sqlx::query(
                 r#"
                         INSERT INTO events
-                            (eventid, nodo, severity, trigger, start_time, opdata, end_time, status)
+                            (eventid, host, severity, trigger, start_time, opdata, end_time, status)
                         SELECT * FROM UNNEST(
                             $1::bigint[],
                             $2::text[],
-                            $3::smallint[],
+                            $3::severity_level[],
                             $4::text[],
                             $5::bigint[],
                             $6::text[],
                             $7::bigint[],
-                            $8::text[]
+                            $8::event_status[]
                         )
                         "#,
             )
             .bind(&eventids)
-            .bind(&nodos)
+            .bind(&host)
             .bind(&severities)
             .bind(&triggers)
             .bind(&start_times)
