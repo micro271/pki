@@ -54,24 +54,25 @@ pub async fn task(db: Repository, groups: Group) {
     tracing::info!("Start");
     let mut group_meta = groups.write().await;
 
-    let mut length = 2000;
+    let mut length;
     let mut resolved = HashMap::new();
     let mut problems = VecDeque::new();
     let to = time::OffsetDateTime::now_utc().unix_timestamp();
 
-    while LIMIT == length {
-        let mut ev = ZbxApi::get_events::<Value>();
+    let mut ev = ZbxApi::get_events::<Value>();
 
-        ev.hostids(&group_meta.hosts);
+    ev.hostids(&group_meta.hosts);
+    ev.until(to);
+    ev.limit(LIMIT);
+
+    loop {
+        let this_eid;
+        let this_from;
+
         ev.from(&group_meta.last_start);
-        ev.until(to);
         ev.eventid(&group_meta.last_event);
-        ev.limit(LIMIT);
 
-        let mut this_eid = None;
-        let mut this_from = None;
-
-        match ev.get().await {
+        match ev.clone().get().await {
             Ok(result) => {
                 length = result.len();
                 this_eid = result
@@ -95,7 +96,7 @@ pub async fn task(db: Repository, groups: Group) {
             }
             Err(er) => {
                 tracing::error!("Parse error: {er:?}");
-                length = 0;
+                break;
             }
         };
 
@@ -174,6 +175,13 @@ pub async fn task(db: Repository, groups: Group) {
                     tracing::info!(
                         "Insert Result: {resp:?}, New latest eventid: {this_eid:?}, new latest start: {this_from:?}"
                     );
+                    if let Some(t) = this_eid {
+                        group_meta.last_event = t;
+                    }
+
+                    if let Some(t) = this_from {
+                        group_meta.last_start = t;
+                    }
                 }
                 Err(er) => {
                     tracing::error!("Insert error: {er:?}");
@@ -186,8 +194,9 @@ pub async fn task(db: Repository, groups: Group) {
             data_update(db.clone(), resolved.drain().collect()).await;
         }
 
-        group_meta.last_event = this_eid.unwrap();
-        group_meta.last_start = this_from.unwrap();
+        if LIMIT != length {
+            break;
+        }
     }
 }
 

@@ -78,7 +78,7 @@ impl ZbxApi {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ZbxApiEvents<T> {
     hostids: Option<Value>,
     from: Option<Value>,
