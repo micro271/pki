@@ -33,8 +33,9 @@ impl Repository {
         }
     }
 
-    pub async fn get_unresolved_events(&self) -> Option<Vec<Event>> {
-        sqlx::query("SELECT eventid FROM events WHERE end_time IS NULL")
+    pub async fn get_unresolved_events(&self, group: &str) -> Option<Vec<Event>> {
+        sqlx::query("SELECT eventid FROM events as e join zbx_group_host gh on gh.host = e.host WHERE gh.group_name = $1 and e.end_time IS NULL")
+            .bind(group)
             .fetch_all(&self.client)
             .await
             .ok()

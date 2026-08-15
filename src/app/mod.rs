@@ -33,7 +33,7 @@ pub async fn data_handler(repo: Repository, mut rx: Receiver<HMessage>) {
                 let groups = groups.read().await.iter().map(|(k,v)| (k.clone(), v.clone())).collect::<Vec<(String, Group)>>();
                 stream::iter(groups)
                     .for_each_concurrent(5, |(name, group_info)| {
-                        task(repo.clone(), group_info).instrument(tracing::info_span!("task", group = %name))
+                        task(repo.clone(), name.clone(), group_info).instrument(tracing::info_span!("task", group = %name))
                     })
                     .await;
             }
@@ -51,9 +51,9 @@ pub async fn data_handler(repo: Repository, mut rx: Receiver<HMessage>) {
     }
 }
 
-pub async fn task(db: Repository, groups: Group) {
+pub async fn task(db: Repository, group_name: String, group: Group) {
     tracing::info!("Start");
-    let mut group_meta = groups.write().await;
+    let mut group_meta = group.write().await;
 
     let mut length;
     let mut resolved = HashMap::new();
@@ -186,7 +186,7 @@ pub async fn task(db: Repository, groups: Group) {
 
         if !resolved.is_empty() {
             tracing::info!("There are events as resolved: {resolved:#?}");
-            data_update(db.clone(), resolved.drain().collect()).await;
+            data_update(db.clone(), &group_name, resolved.drain().collect()).await;
         }
 
         if let Some(t) = this_eid {
