@@ -25,7 +25,7 @@ pub struct Event {
     pub eventid: i64,
     pub host: String,
     pub severity: Severity,
-    pub trigger_name: String,
+    pub trigger: String,
     pub start_time: i64,
     pub opdata: String,
     pub end_time: Option<i64>,

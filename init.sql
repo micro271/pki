@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS events (
     eventid BIGINT PRIMARY KEY,
     host TEXT NOT NULL REFERENCES zbx_hosts(host),
     severity severity_level NOT NULL,
-    trigger_name TEXT NOT NULL,
+    trigger TEXT NOT NULL,
     start_time BIGINT NOT NULL,
     opdata TEXT NOT NULL DEFAULT '',
     end_time BIGINT,

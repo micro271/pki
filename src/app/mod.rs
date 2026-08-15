@@ -147,7 +147,7 @@ pub async fn task(db: Repository, group_name: String, group: Group) {
             let resp = sqlx::query(
                 r#"
                         INSERT INTO events
-                            (eventid, host, severity, trigger_name, start_time, opdata, end_time, status)
+                            (eventid, host, severity, trigger, start_time, opdata, end_time, status)
                         SELECT * FROM UNNEST(
                             $1::bigint[],
                             $2::text[],

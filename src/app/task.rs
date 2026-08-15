@@ -47,7 +47,6 @@ pub async fn load_groups(repo: Repository) -> HashMap<String, Arc<RwLock<GroupIn
 pub async fn data_update(db: Repository, group: &str, mut resolved: HashMap<i64, i64>) -> bool {
     let events = db.get_unresolved_events(group).await.unwrap();
     tracing::warn!("Unresolved eventds: {}: {events:#?}", events.len());
-    tracing::debug!("events unresolved from now: {events:#?}");
     tracing::debug!("To update {resolved:#?}");
 
     let event_ids = events.into_iter().map(|x| x.eventid).collect::<Vec<_>>();
