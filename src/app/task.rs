@@ -5,7 +5,7 @@ use sqlx::Row;
 use tokio::sync::RwLock;
 
 use crate::{
-    app::{GroupType, URL, as_i64},
+    app::{GroupType, LAST_DAYS, URL, as_i64},
     models::{GroupInfo, Status},
     repository::Repository,
     zabbix_api::{ZbxApi, request_reqwest_handle},
@@ -16,14 +16,15 @@ pub async fn load_groups(repo: Repository) -> HashMap<String, Arc<RwLock<GroupIn
         r#"
         select gh.group_name as group,
             array_agg(distinct h.hostid) as hosts,
-            max(e.start_time) as latest_start,
-            max(e.eventid) as latest_eventid
-        from events as e 
-            join zbx_group_host as gh on gh.host = e.host 
-            join zbx_hosts as h on h.host = e.host
+            coalesce(max(e.start_time), $1) as latest_start,
+            coalesce(max(e.eventid), 0) as latest_eventid
+        from zbx_group_host as gh 
+            join zbx_hosts as h on h.host = gh.host
+            left join events as e on e.host = h.host
             group by gh.group_name;
         "#,
     )
+    .bind((time::OffsetDateTime::now_utc() - time::Duration::days(LAST_DAYS)).unix_timestamp())
     .fetch_all(&*repo)
     .await
     .unwrap();
@@ -167,7 +168,7 @@ pub async fn data_update(db: Repository, group: &str, mut resolved: HashMap<i64,
 }
 
 pub async fn new_group(repo: Repository, name: String, groups: GroupType) {
-    let from = (time::OffsetDateTime::now_utc() - time::Duration::days(30)).unix_timestamp();
+    let from = (time::OffsetDateTime::now_utc() - time::Duration::days(LAST_DAYS)).unix_timestamp();
     let group = ZbxApi::get_group(&name).await.unwrap();
     tracing::debug!("Group info: {group:?}");
     let hosts = ZbxApi::get_hosts(group.groupid).await.unwrap();

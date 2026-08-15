@@ -18,6 +18,7 @@ use crate::{
 
 pub const URL: &str = "http://172.30.0.153/api_jsonrpc.php";
 pub const LIMIT: usize = 2000;
+pub const LAST_DAYS: i64 = 30;
 
 pub type Group = Arc<RwLock<GroupInfo>>;
 pub type GroupType = Arc<RwLock<HashMap<String, Group>>>;
