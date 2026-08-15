@@ -185,6 +185,7 @@ pub async fn task(db: Repository, groups: Group) {
         }
 
         if !resolved.is_empty() {
+            tracing::info!("There are events as resolved: {resolved:#?}");
             data_update(db.clone(), resolved.drain().collect()).await;
         }
 

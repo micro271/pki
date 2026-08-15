@@ -36,7 +36,7 @@ pub async fn load_groups(repo: Repository) -> HashMap<String, Arc<RwLock<GroupIn
                 x.get("group"),
                 Arc::new(RwLock::new(GroupInfo::new(
                     last_start,
-                    last_eid,
+                    last_eid + 1,
                     x.get("hosts"),
                 ))),
             )
@@ -46,7 +46,7 @@ pub async fn load_groups(repo: Repository) -> HashMap<String, Arc<RwLock<GroupIn
 
 pub async fn data_update(db: Repository, mut resolved: HashMap<i64, i64>) -> bool {
     let events = db.get_unresolved_events().await.unwrap();
-
+    tracing::warn!("Unresolved eventds: {}: {events:#?}", events.len());
     tracing::debug!("events unresolved from now: {events:#?}");
     tracing::debug!("To update {resolved:#?}");
 
@@ -81,10 +81,18 @@ pub async fn data_update(db: Repository, mut resolved: HashMap<i64, i64>) -> boo
             let mut vec_end_time = Vec::with_capacity(result.len());
 
             for i in result {
-                let r_eventid = as_i64(&i["r_eventid"]).unwrap();
-                vec_eventid.push(r_eventid);
-                vec_end_time.push(resolved.remove(&r_eventid).unwrap());
+                let r_eid = as_i64(&i["r_eventid"]).unwrap();
+                if let Some(eid) = resolved.remove(&r_eid) {
+                    tracing::debug!("One match: eid: {} - r_eid: {}", eid, r_eid);
+                    vec_eventid.push(r_eid);
+                    vec_end_time.push(eid);
+                }
             }
+            tracing::info!("It was updated {} events", vec_end_time.len());
+            tracing::warn!(
+                "Pending to update: {}",
+                event_ids.len() - vec_end_time.len()
+            );
             sqlx::query(
                 r"
                 UPDATE events e
