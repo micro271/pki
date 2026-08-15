@@ -184,10 +184,7 @@ pub async fn task(db: Repository, group_name: String, group: Group) {
             }
         }
 
-        if !resolved.is_empty() {
-            tracing::info!("There are events as resolved: {resolved:#?}");
-            data_update(db.clone(), &group_name, resolved.drain().collect()).await;
-        }
+        data_update(db.clone(), &group_name, resolved.drain().collect()).await;
 
         if let Some(t) = this_eid {
             group_meta.last_event = t;

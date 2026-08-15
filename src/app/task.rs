@@ -52,7 +52,7 @@ pub async fn data_update(db: Repository, group: &str, mut resolved: HashMap<i64,
 
     let event_ids = events.into_iter().map(|x| x.eventid).collect::<Vec<_>>();
 
-    let d = json!({
+    let mut d = json!({
         "jsonrpc":"2.0",
         "method":"event.get",
             "params":{
@@ -79,13 +79,56 @@ pub async fn data_update(db: Repository, group: &str, mut resolved: HashMap<i64,
         Ok(result) => {
             let mut vec_eventid = Vec::with_capacity(result.len());
             let mut vec_end_time = Vec::with_capacity(result.len());
-
+            let mut to_get = HashMap::new();
             for i in result {
-                let r_eid = as_i64(&i["r_eventid"]).unwrap();
-                if let Some(eid) = resolved.remove(&r_eid) {
-                    tracing::debug!("One match: eid: {} - r_eid: {}", eid, r_eid);
-                    vec_eventid.push(r_eid);
-                    vec_end_time.push(eid);
+                if let Some(r_eid @ 1..) = as_i64(&i["r_eventid"])
+                    && let Some(eid) = as_i64(&i["eventid"])
+                {
+                    if let Some(clock) = resolved.remove(&r_eid) {
+                        tracing::debug!("One match: eid: {} - r_eid: {}", eid, r_eid);
+                        vec_eventid.push(eid);
+                        vec_end_time.push(clock);
+                    } else {
+                        to_get.insert(r_eid, eid);
+                    }
+                }
+            }
+            if !to_get.is_empty() {
+                tracing::info!(
+                    "{} not found in resolved events, so we going to obtain the r_eventid from the api zabbix",
+                    to_get.len()
+                );
+                d["params"]["eventids"] = json!(to_get.keys().collect::<Vec<_>>());
+
+                tracing::debug!("query: {d:#?}");
+
+                match request_reqwest_handle::<Vec<Value>>(
+                    req.post(URL)
+                        .json(&d)
+                        .header("Authorization", format!("Bearer {token}")),
+                )
+                .await
+                {
+                    Ok(resp) => {
+                        if resp.len() != to_get.len() {
+                            tracing::warn!(
+                                "We dont' obtain all event resolved data: events: {} - to obtain: {}",
+                                resp.len(),
+                                to_get.len()
+                            );
+                        }
+
+                        for i in resp {
+                            if let Some(r_eid) = as_i64(&i["eventid"])
+                                && let Some(eid) = to_get.remove(&r_eid)
+                                && let Some(end_time) = as_i64(&i["clock"])
+                            {
+                                vec_eventid.push(eid);
+                                vec_end_time.push(end_time);
+                            }
+                        }
+                    }
+                    Err(er) => tracing::error!("{er:?}"),
                 }
             }
             tracing::info!("It was updated {} events", vec_end_time.len());
