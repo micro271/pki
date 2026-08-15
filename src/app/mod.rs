@@ -24,6 +24,7 @@ pub type GroupType = Arc<RwLock<HashMap<String, Group>>>;
 
 pub async fn data_handler(repo: Repository, mut rx: Receiver<HMessage>) {
     let groups = Arc::new(RwLock::new(load_groups(repo.clone()).await));
+    tracing::debug!("Data: {groups:#?}");
     let mut interval = tokio::time::interval(Duration::from_secs(600));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
@@ -175,13 +176,6 @@ pub async fn task(db: Repository, groups: Group) {
                     tracing::info!(
                         "Insert Result: {resp:?}, New latest eventid: {this_eid:?}, new latest start: {this_from:?}"
                     );
-                    if let Some(t) = this_eid {
-                        group_meta.last_event = t;
-                    }
-
-                    if let Some(t) = this_from {
-                        group_meta.last_start = t;
-                    }
                 }
                 Err(er) => {
                     tracing::error!("Insert error: {er:?}");
@@ -192,6 +186,14 @@ pub async fn task(db: Repository, groups: Group) {
 
         if !resolved.is_empty() {
             data_update(db.clone(), resolved.drain().collect()).await;
+        }
+
+        if let Some(t) = this_eid {
+            group_meta.last_event = t;
+        }
+
+        if let Some(t) = this_from {
+            group_meta.last_start = t;
         }
 
         if LIMIT != length {

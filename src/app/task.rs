@@ -14,18 +14,15 @@ use crate::{
 pub async fn load_groups(repo: Repository) -> HashMap<String, Arc<RwLock<GroupInfo>>> {
     let resp = sqlx::query(
         r#"
-        SELECT 
-            g.name as group,
-            array_agg(h.hostid) as hosts,
-            MAX(ev.start_time) as latest_start,
-            MAX(ev.end_time) as latest_end,
-            MAX(ev.eventid) as latest_eventid
-        FROM zbx_groups g
-        JOIN zbx_group_host gh ON (g.name = gh.group_name)
-        JOIN zbx_hosts h ON (gh.host = h.host)
-        JOIN events ev ON (h.host = ev.host)
-        GROUP BY g.name
-    "#,
+        select gh.group_name,
+            array_agg(distinct h.hostid),
+            max(e.start_time) as latest_start,
+            max(e.eventid) as latest_eventid
+        from events as e 
+            join zbx_group_host as gh on gh.host = e.host 
+            join zbx_hosts as h on h.host = e.host
+            group by gh.group_name;
+        "#,
     )
     .fetch_all(&*repo)
     .await
@@ -33,11 +30,15 @@ pub async fn load_groups(repo: Repository) -> HashMap<String, Arc<RwLock<GroupIn
 
     resp.into_iter()
         .map(|x| {
-            let et: i64 = x.get("latest_end");
-            let st: i64 = x.get("latest_start");
+            let last_eid: i64 = x.get("latest_eventid");
+            let last_start: i64 = x.get("latest_start");
             (
                 x.get("group"),
-                Arc::new(RwLock::new(GroupInfo::new(st, et, x.get("hosts")))),
+                Arc::new(RwLock::new(GroupInfo::new(
+                    last_start,
+                    last_eid,
+                    x.get("hosts"),
+                ))),
             )
         })
         .collect::<HashMap<_, _>>()

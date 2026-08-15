@@ -125,10 +125,7 @@ where
         let token = std::env::var("TOKEN").unwrap();
         let sorted = if self.asc { "ASC" } else { "DESC" };
         let until = self.until.unwrap_or_else(|| {
-            serde_json::to_value(
-                (time::OffsetDateTime::now_utc() - time::Duration::days(30)).unix_timestamp(),
-            )
-            .unwrap()
+            serde_json::to_value(time::OffsetDateTime::now_utc().unix_timestamp()).unwrap()
         });
         let d = json!({
             "jsonrpc":"2.0",
