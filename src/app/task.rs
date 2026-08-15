@@ -14,8 +14,8 @@ use crate::{
 pub async fn load_groups(repo: Repository) -> HashMap<String, Arc<RwLock<GroupInfo>>> {
     let resp = sqlx::query(
         r#"
-        select gh.group_name,
-            array_agg(distinct h.hostid),
+        select gh.group_name as group,
+            array_agg(distinct h.hostid) as hosts,
             max(e.start_time) as latest_start,
             max(e.eventid) as latest_eventid
         from events as e 
