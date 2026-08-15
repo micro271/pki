@@ -23,9 +23,9 @@ impl GroupInfo {
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct Event {
     pub eventid: i64,
-    pub nodo: String,
+    pub host: String,
     pub severity: Severity,
-    pub trigger: String,
+    pub trigger_name: String,
     pub start_time: i64,
     pub opdata: String,
     pub end_time: Option<i64>,
