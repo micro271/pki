@@ -52,30 +52,26 @@ pub async fn data_update(db: Repository, group: &str, mut resolved: HashMap<i64,
 
     let event_ids = events.into_iter().map(|x| x.eventid).collect::<Vec<_>>();
 
-    let mut d = json!({
+    let token = std::env::var("TOKEN").unwrap();
+    let client = reqwest::Client::new();
+    let d = json!({
         "jsonrpc":"2.0",
         "method":"event.get",
             "params":{
-                "output":"extend",
-                "source":0,
-                "object":0,
+                "output":["eventid", "r_eventid"],
                 "eventids": event_ids,
-                "selectHosts": ["hostid","host"],
-                "selectRelatedObject": ["triggerid","description","priority"],
-                "sortfield": ["clock", "eventid"],
-                "sortorder":"ASC"
             },
         "id":1
     });
-    let token = std::env::var("TOKEN").unwrap();
-    let req = reqwest::Client::new();
-    match request_reqwest_handle::<Vec<Value>>(
-        req.post(URL)
+    let req = request_reqwest_handle::<Vec<Value>>(
+        client
+            .post(URL)
             .json(&d)
             .header("Authorization", format!("Bearer {token}")),
     )
-    .await
-    {
+    .await;
+
+    match req {
         Ok(result) => {
             let mut vec_eventid = Vec::with_capacity(result.len());
             let mut vec_end_time = Vec::with_capacity(result.len());
@@ -98,17 +94,27 @@ pub async fn data_update(db: Repository, group: &str, mut resolved: HashMap<i64,
                     "{} not found in resolved events, so we going to obtain the r_eventid from the api zabbix",
                     to_get.len()
                 );
-                d["params"]["eventids"] = json!(to_get.keys().collect::<Vec<_>>());
+                let d = json!({
+                    "jsonrpc": "2.0",
+                    "method": "event.get",
+                    "params": {
+                        "output": ["eventid", "clock"],
+                        "eventids": to_get.keys().collect::<Vec<_>>()
+                    },
+                    "id": 1
+                });
 
                 tracing::debug!("query: {d:#?}");
 
-                match request_reqwest_handle::<Vec<Value>>(
-                    req.post(URL)
+                let req = request_reqwest_handle::<Vec<Value>>(
+                    client
+                        .post(URL)
                         .json(&d)
                         .header("Authorization", format!("Bearer {token}")),
                 )
-                .await
-                {
+                .await;
+
+                match req {
                     Ok(resp) => {
                         if resp.len() != to_get.len() {
                             tracing::warn!(
