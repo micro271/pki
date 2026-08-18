@@ -38,7 +38,7 @@ impl ZbxApi {
 
         let req = reqwest::Client::new();
         match request_reqwest_handle::<Vec<ZbxHost>>(
-            req.post(URL)
+            req.post(&*URL)
                 .header("Authorization", format!("Bearer {token}"))
                 .json(&d),
         )
@@ -66,7 +66,7 @@ impl ZbxApi {
         let req = reqwest::Client::new();
 
         match request_reqwest_handle::<Vec<ZbxGroup>>(
-            req.post(URL)
+            req.post(&*URL)
                 .header("Authorization", format!("Bearer {token}"))
                 .json(&body_get_goup_id),
         )
@@ -155,7 +155,7 @@ where
 
         request_reqwest_handle::<Vec<D>>(
             client
-                .post(URL)
+                .post(&*URL)
                 .header("Authorization", format!("Bearer {token}"))
                 .json(&d),
         )

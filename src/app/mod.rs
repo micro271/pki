@@ -3,7 +3,7 @@ use futures::stream::{self, StreamExt};
 use serde_json::Value;
 use std::{
     collections::{HashMap, VecDeque},
-    sync::Arc,
+    sync::{Arc, LazyLock},
     time::Duration,
 };
 use tokio::sync::{RwLock, mpsc::Receiver};
@@ -16,7 +16,7 @@ use crate::{
     zabbix_api::ZbxApi,
 };
 
-pub const URL: &str = "http://172.30.0.153/api_jsonrpc.php";
+pub static URL: LazyLock<String> = LazyLock::new(|| std::env::var("API_URL").unwrap());
 pub const LIMIT: usize = 2000;
 pub const LAST_DAYS: i64 = 30;
 

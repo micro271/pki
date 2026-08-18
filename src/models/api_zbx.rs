@@ -38,6 +38,26 @@ impl<'de> Deserialize<'de> for ZbxAuditLog {
                     _ => Ok(_Fields::Ignore),
                 }
             }
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match v {
+                    0u64 => Ok(_Fields::Field0),
+                    1u64 => Ok(_Fields::Field1),
+                    _ => Ok(_Fields::Ignore),
+                }
+            }
+            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match v {
+                    b"resourceid" => Ok(_Fields::Field0),
+                    b"details" => Ok(_Fields::Field1),
+                    _ => Ok(_Fields::Ignore),
+                }
+            }
         }
         impl<'de> Deserialize<'de> for _Fields {
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -93,8 +113,9 @@ impl<'de> Deserialize<'de> for ZbxAuditLog {
                 }
 
                 Ok(ZbxAuditLog {
-                    resourceid: resourceid.unwrap(),
-                    details: details.unwrap(),
+                    resourceid: resourceid
+                        .ok_or_else(|| serde::de::Error::missing_field("resourceid"))?,
+                    details: details.ok_or_else(|| serde::de::Error::missing_field("details"))?,
                 })
             }
         }
@@ -131,7 +152,78 @@ impl<'de> Deserialize<'de> for ZbxResourceOp {
     where
         D: Deserializer<'de>,
     {
-        todo!()
+        enum _Field {
+            Field0,
+            Field1,
+            Field2,
+        }
+
+        struct _FieldVisitor;
+
+        impl<'de> Visitor<'de> for _FieldVisitor {
+            type Value = _Field;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("")
+            }
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match v {
+                    "add" => Ok(_Field::Field0),
+                    "update" => Ok(_Field::Field1),
+                    "delete" => Ok(_Field::Field2),
+                    e => Err(serde::de::Error::custom(format!("Invalid Variant {e:?}"))),
+                }
+            }
+        }
+
+        impl<'de> Deserialize<'de> for _Field {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                deserializer.deserialize_identifier(_FieldVisitor)
+            }
+        }
+
+        struct _Visitor;
+
+        impl<'de> Visitor<'de> for _Visitor {
+            type Value = ZbxResourceOp;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("")
+            }
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                match seq.next_element::<_Field>()? {
+                    Some(_Field::Field0) => Ok(ZbxResourceOp::Add {
+                        value: seq
+                            .next_element::<String>()?
+                            .ok_or_else(|| serde::de::Error::missing_field("value"))?,
+                    }),
+                    Some(_Field::Field1) => {
+                        let new = seq.next_element::<String>()?;
+                        let old = seq.next_element::<String>()?;
+
+                        Ok(ZbxResourceOp::Update {
+                            new: new.ok_or_else(|| serde::de::Error::missing_field("new"))?,
+                            old: old.ok_or_else(|| serde::de::Error::missing_field("old"))?,
+                        })
+                    }
+                    Some(_Field::Field2) => Ok(ZbxResourceOp::Delete {
+                        value: seq
+                            .next_element::<String>()?
+                            .ok_or_else(|| serde::de::Error::missing_field("value"))?,
+                    }),
+                    None => Err(serde::de::Error::custom("")),
+                }
+            }
+        }
+
+        _deserializer.deserialize_seq(_Visitor)
     }
 }
 
@@ -312,5 +404,81 @@ impl<'de> Deserialize<'de> for ZbxApiResourceType {
         }
 
         deserializer.deserialize_any(ResourceTypeVisitor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_deserialize_add() {
+        let json = r#"["add", "192.168.1.10"]"#;
+        let result: ZbxResourceOp = serde_json::from_str(json).unwrap();
+
+        match result {
+            ZbxResourceOp::Add { value } => assert_eq!(value, "192.168.1.10"),
+            other => panic!("esperaba Add, obtuve {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_deserialize_update() {
+        let json = r#"["update", "servidor-nuevo", "servidor-viejo"]"#;
+        let result: ZbxResourceOp = serde_json::from_str(json).unwrap();
+
+        match result {
+            ZbxResourceOp::Update { new, old } => {
+                assert_eq!(new, "servidor-nuevo");
+                assert_eq!(old, "servidor-viejo");
+            }
+            other => panic!("esperaba Update, obtuve {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_deserialize_delete() {
+        let json = r#"["delete", "15"]"#;
+        let result: ZbxResourceOp = serde_json::from_str(json).unwrap();
+
+        match result {
+            ZbxResourceOp::Delete { value } => assert_eq!(value, "15"),
+            other => panic!("esperaba Delete, obtuve {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_deserialize_invalid_variant() {
+        let json = r#"["rename", "x"]"#;
+        let result: Result<ZbxResourceOp, _> = serde_json::from_str(json);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_missing_update_fields() {
+        // update necesita 2 valores además del tag, acá solo viene 1
+        let json = r#"["update", "solo-uno"]"#;
+        let result: Result<ZbxResourceOp, _> = serde_json::from_str(json);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_delete_without_value() {
+        // caso real de Zabbix: delete de un sub-objeto sin valor, ej. host.groups[N]
+        let json = r#"["delete"]"#;
+        let result: Result<ZbxResourceOp, _> = serde_json::from_str(json);
+
+        // con tu implementación actual esto debería FALLAR (Delete requiere value: String)
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_empty_array() {
+        let json = r#"[]"#;
+        let result: Result<ZbxResourceOp, _> = serde_json::from_str(json);
+
+        assert!(result.is_err());
     }
 }

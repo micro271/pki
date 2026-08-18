@@ -86,7 +86,7 @@ pub async fn data_update(db: Repository, group: &str, mut resolved: HashMap<i64,
     });
     let req = request_reqwest_handle::<Vec<Value>>(
         client
-            .post(URL)
+            .post(&*URL)
             .json(&d)
             .header("Authorization", format!("Bearer {token}")),
     )
@@ -129,7 +129,7 @@ pub async fn data_update(db: Repository, group: &str, mut resolved: HashMap<i64,
 
                 let req = request_reqwest_handle::<Vec<Value>>(
                     client
-                        .post(URL)
+                        .post(&*URL)
                         .json(&d)
                         .header("Authorization", format!("Bearer {token}")),
                 )
