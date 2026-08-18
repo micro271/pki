@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::{
     app::URL,
-    models::api_zbx::{DataErrorApiZbx, ZbxError, ZbxGroup, ZbxHost, ZbxResponse},
+    models::api_zbx::{DataErrorApiZbx, ZbxAuditLog, ZbxError, ZbxGroup, ZbxHost, ZbxResponse},
 };
 use reqwest::RequestBuilder;
 use serde::{Deserialize, Serialize};
@@ -75,6 +75,10 @@ impl ZbxApi {
             Ok(mut resp) => Ok(resp.pop().unwrap()),
             Err(er) => Err(er),
         }
+    }
+
+    pub async fn get_auditlog() -> Result<ZbxAuditLog, ZbxError> {
+        todo!()
     }
 }
 

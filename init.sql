@@ -1,3 +1,8 @@
+CREATE TYPE host_status AS ENUM (
+    'enable',
+    'disable'
+);
+
 CREATE TYPE event_status AS ENUM (
     'resolved',
     'ongoing'
@@ -15,11 +20,13 @@ CREATE TYPE severity_level AS ENUM (
 CREATE TABLE IF NOT EXISTS zbx_hosts (
     host TEXT PRIMARY KEY,
     hostid BIGINT NOT NULL UNIQUE
+    last_change BIGINT,
+    status host_status
 );
 
 CREATE TABLE IF NOT EXISTS events (
     eventid BIGINT PRIMARY KEY,
-    host TEXT NOT NULL REFERENCES zbx_hosts(host),
+    host TEXT NOT NULL REFERENCES zbx_hosts(host) ON DELETE CASCADE ON UPDATE CASCADE,
     severity severity_level NOT NULL,
     trigger TEXT NOT NULL,
     start_time BIGINT NOT NULL,
@@ -30,12 +37,13 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE TABLE IF NOT EXISTS zbx_groups (
     name TEXT PRIMARY KEY,
-    groupid BIGINT NOT NULL UNIQUE
+    groupid BIGINT NOT NULL UNIQUE,
 );
 
 CREATE TABLE IF NOT EXISTS zbx_group_host (
-    group_name TEXT NOT NULL REFERENCES zbx_groups(name) ON DELETE CASCADE,
-    host TEXT NOT NULL REFERENCES zbx_hosts(host) ON DELETE CASCADE,
+    group_name TEXT NOT NULL REFERENCES zbx_groups(name) ON DELETE CASCADE ON UPDATE CASCADE,
+    host TEXT NOT NULL REFERENCES zbx_hosts(host) ON DELETE CASCADE ON UPDATE CASCADE,
+    last_change BIGINT
     PRIMARY KEY (group_name, host)
 );
 

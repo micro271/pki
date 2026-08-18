@@ -7,15 +7,44 @@ use sqlx::prelude::FromRow;
 pub struct GroupInfo {
     pub last_start: i64,
     pub last_event: i64,
-    pub hosts: Vec<i64>,
+    pub hosts: HostsInfo,
+    pub last_change: i64,
 }
 
 impl GroupInfo {
-    pub fn new(start: i64, evendid: i64, hosts: Vec<i64>) -> Self {
+    pub fn new(start: i64, evendid: i64, hosts: HostsInfo, last_change: i64) -> Self {
         Self {
             last_start: start,
             last_event: evendid,
+            last_change,
             hosts,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct HostsInfo(Vec<HostInfo>);
+
+impl HostsInfo {
+    pub fn new(list: Vec<HostInfo>) -> Self {
+        Self(list)
+    }
+    pub fn get_hostids(&self) -> Vec<i64> {
+        self.0.iter().map(|x| x.hostid).collect()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct HostInfo {
+    last_change: i64,
+    hostid: i64,
+}
+
+impl HostInfo {
+    pub fn new(hids: i64, lc: i64) -> Self {
+        Self {
+            last_change: lc,
+            hostid: hids,
         }
     }
 }
@@ -126,4 +155,9 @@ impl Severity {
             _ => Severity::NotClassifier,
         })
     }
+}
+
+pub enum LoadGroup {
+    All,
+    Group(String),
 }

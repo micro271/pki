@@ -10,8 +10,8 @@ use tokio::sync::{RwLock, mpsc::Receiver};
 use tracing::Instrument;
 
 use crate::{
-    app::task::{data_update, load_groups, new_group},
-    models::{GroupInfo, Severity, Status},
+    app::task::{data_update, load_group, new_group, update_group_meta},
+    models::{GroupInfo, LoadGroup, Severity, Status},
     repository::{HMessage, Repository},
     zabbix_api::ZbxApi,
 };
@@ -24,13 +24,21 @@ pub type Group = Arc<RwLock<GroupInfo>>;
 pub type GroupType = Arc<RwLock<HashMap<String, Group>>>;
 
 pub async fn data_handler(repo: Repository, mut rx: Receiver<HMessage>) {
-    let groups = Arc::new(RwLock::new(load_groups(repo.clone()).await));
+    let groups = Arc::new(RwLock::new(load_group(repo.clone(), LoadGroup::All).await));
+    let mut last_change = time::OffsetDateTime::UNIX_EPOCH.unix_timestamp();
     tracing::debug!("Data: {groups:#?}");
     let mut interval = tokio::time::interval(Duration::from_secs(600));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         tokio::select! {
             _ = interval.tick() => {
+
+                let now = time::OffsetDateTime::now_utc().unix_timestamp();
+                if now - last_change > 3600 {
+                    last_change = now;
+                    update_group_meta(repo.clone(), groups.clone(), last_change).await;
+                }
+
                 let groups = groups.read().await.iter().map(|(k,v)| (k.clone(), v.clone())).collect::<Vec<(String, Group)>>();
                 stream::iter(groups)
                     .for_each_concurrent(5, |(name, group_info)| {
@@ -63,7 +71,7 @@ pub async fn task(db: Repository, group_name: String, group: Group) {
 
     let mut ev = ZbxApi::get_events::<Value>();
 
-    ev.hostids(&group_meta.hosts);
+    ev.hostids(&group_meta.hosts.get_hostids());
     ev.until(to);
     ev.limit(LIMIT);
 

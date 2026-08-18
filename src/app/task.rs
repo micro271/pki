@@ -6,28 +6,41 @@ use tokio::sync::RwLock;
 
 use crate::{
     app::{GroupType, LAST_DAYS, URL, as_i64},
-    models::{GroupInfo, Status},
+    models::{GroupInfo, HostInfo, HostsInfo, LoadGroup, Status, api_zbx::ZbxApiResourceType},
     repository::Repository,
     zabbix_api::{ZbxApi, request_reqwest_handle},
 };
 
-pub async fn load_groups(repo: Repository) -> HashMap<String, Arc<RwLock<GroupInfo>>> {
-    let resp = sqlx::query(
+pub async fn load_group(
+    repo: Repository,
+    group: LoadGroup,
+) -> HashMap<String, Arc<RwLock<GroupInfo>>> {
+    let query = format!(
         r#"
-        select gh.group_name as group,
-            array_agg(distinct h.hostid) as hosts,
-            coalesce(max(e.start_time), $1) as latest_start,
-            coalesce(max(e.eventid), 0) as latest_eventid
-        from zbx_group_host as gh 
-            join zbx_hosts as h on h.host = gh.host
-            left join events as e on e.host = h.host
-            group by gh.group_name;
+            select gh.group_name as group,
+                array_agg(distinct h.hostid) as hosts,
+                coalesce(max(e.start_time), $1) as latest_start,
+                coalesce(max(e.eventid), 0) as latest_eventid
+            from zbx_group_host as gh 
+                join zbx_hosts as h on h.host = gh.host
+                left join events as e on e.host = h.host{}
+                group by gh.group_name;
         "#,
-    )
-    .bind((time::OffsetDateTime::now_utc() - time::Duration::days(LAST_DAYS)).unix_timestamp())
-    .fetch_all(&*repo)
-    .await
-    .unwrap();
+        if let LoadGroup::Group(_) = &group {
+            "\nwhere gh.group_name = $2\n"
+        } else {
+            ""
+        }
+    );
+
+    let mut resp = sqlx::query(sqlx::AssertSqlSafe(query))
+        .bind((time::OffsetDateTime::now_utc() - time::Duration::days(LAST_DAYS)).unix_timestamp());
+
+    if let LoadGroup::Group(g) = group {
+        resp = resp.bind(g);
+    };
+
+    let resp = resp.fetch_all(&*repo).await.unwrap();
 
     resp.into_iter()
         .map(|x| {
@@ -38,7 +51,15 @@ pub async fn load_groups(repo: Repository) -> HashMap<String, Arc<RwLock<GroupIn
                 Arc::new(RwLock::new(GroupInfo::new(
                     last_start,
                     last_eid + 1,
-                    x.get("hosts"),
+                    {
+                        let tmp: Vec<(i64, i64)> = x.get("hosts");
+                        HostsInfo::new(
+                            tmp.into_iter()
+                                .map(|(hid, last_change)| HostInfo::new(hid, last_change))
+                                .collect(),
+                        )
+                    },
+                    time::OffsetDateTime::UNIX_EPOCH.unix_timestamp(),
                 ))),
             )
         })
@@ -184,18 +205,21 @@ pub async fn new_group(repo: Repository, name: String, groups: GroupType) {
 
     let mut repo = repo.begin().await.unwrap();
 
+    let last_change_default = time::OffsetDateTime::UNIX_EPOCH.unix_timestamp();
     let tr = async {
-        sqlx::query("INSERT INTO zbx_groups (name, groupid) VALUES ($1, $2)")
+        sqlx::query("INSERT INTO zbx_groups (name, groupid, last_change) VALUES ($1, $2, $3)")
             .bind(group.name)
             .bind(group.groupid)
+            .bind(last_change_default)
             .execute(&mut *repo)
             .await?;
 
         sqlx::query(
-            "INSERT INTO zbx_hosts (host, hostid) SELECT * FROM UNNEST ($1::TEXT[], $2::BIGINT[])",
+            "INSERT INTO zbx_hosts (host, hostid, last_change) SELECT *, $3 FROM UNNEST ($1::TEXT[], $2::BIGINT[])",
         )
         .bind(&names)
         .bind(&hids)
+        .bind(last_change_default)
         .execute(&mut *repo)
         .await?;
 
@@ -213,10 +237,19 @@ pub async fn new_group(repo: Repository, name: String, groups: GroupType) {
     match tr.await {
         Ok(()) => match repo.commit().await {
             Ok(()) => {
-                groups
-                    .write()
-                    .await
-                    .insert(name, Arc::new(RwLock::new(GroupInfo::new(from, 0, hids))));
+                groups.write().await.insert(
+                    name,
+                    Arc::new(RwLock::new(GroupInfo::new(
+                        from,
+                        0,
+                        HostsInfo::new(
+                            hids.into_iter()
+                                .map(|x| HostInfo::new(x, last_change_default))
+                                .collect(),
+                        ),
+                        time::OffsetDateTime::now_utc().unix_timestamp(),
+                    ))),
+                );
             }
             Err(er) => tracing::error!("{er:?}"),
         },
@@ -227,4 +260,30 @@ pub async fn new_group(repo: Repository, name: String, groups: GroupType) {
             }
         }
     }
+}
+
+pub async fn update_group_meta(repo: Repository, groups: GroupType, from: i64) {
+    let wr = groups.write().await;
+
+    let mut d = json!({
+        "jsonrpc": "2.0",
+        "method": "auditlog.get",
+        "params": {
+            "output": "extend",
+            "filter": {
+                "resourcetype": ZbxApiResourceType::Host,
+                "resourceid": []
+            },
+            "sortfield": "clock",
+            "sortorder": "DESC",
+            "limit": 100
+        },
+        "id": 1
+    });
+
+    for (group, g_info) in wr.iter() {
+        let hids = &g_info.read().await.hosts;
+        d["params"]["filter"]["resourceid"] = serde_json::to_value(hids.get_hostids()).unwrap();
+    }
+    todo!()
 }
