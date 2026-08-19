@@ -270,6 +270,7 @@ pub async fn update_group_meta(repo: Repository, groups: GroupType, from: i64) {
         "method": "auditlog.get",
         "params": {
             "output": "extend",
+            "from_time": from,
             "filter": {
                 "resourcetype": ZbxApiResourceType::Host,
                 "resourceid": []
@@ -280,7 +281,8 @@ pub async fn update_group_meta(repo: Repository, groups: GroupType, from: i64) {
         },
         "id": 1
     });
-
+    let client = reqwest::Client::new();
+    let token = ";";
     for (group, g_info) in wr.iter() {
         let hids = &g_info.read().await.hosts;
         d["params"]["filter"]["resourceid"] = serde_json::to_value(hids.get_hostids()).unwrap();

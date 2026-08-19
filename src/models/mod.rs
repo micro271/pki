@@ -36,8 +36,8 @@ impl HostsInfo {
 
 #[derive(Debug, Clone)]
 pub struct HostInfo {
-    last_change: i64,
-    hostid: i64,
+    pub last_change: i64,
+    pub hostid: i64,
 }
 
 impl HostInfo {

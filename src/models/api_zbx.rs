@@ -1,8 +1,12 @@
+use std::collections::HashMap;
+
 use serde::{
     Deserialize, Deserializer, Serialize,
-    de::{IgnoredAny, Visitor},
+    de::{DeserializeSeed, IgnoredAny, Visitor},
 };
 use serde_json::Value;
+
+type ZbxAuditDetail = HashMap<String, ZbxResourceOp>;
 
 #[derive(Debug)]
 pub struct ZbxAuditLog {
@@ -68,6 +72,56 @@ impl<'de> Deserialize<'de> for ZbxAuditLog {
             }
         }
 
+        struct _VisitI64;
+
+        impl<'de> Visitor<'de> for _VisitI64 {
+            type Value = i64;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("")
+            }
+            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(v)
+            }
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i64::try_from(v).map_err(|_| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(v),
+                        &"a value that fits in i64",
+                    )
+                })
+            }
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                v.parse().map_err(|_| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Str(v),
+                        &"a string containing a valid i64",
+                    )
+                })
+            }
+        }
+
+        struct FlexibleI64Seed;
+
+        impl<'de> DeserializeSeed<'de> for FlexibleI64Seed {
+            type Value = i64;
+
+            fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                deserializer.deserialize_any(_VisitI64)
+            }
+        }
+
         struct _Visitor;
 
         impl<'de> Visitor<'de> for _Visitor {
@@ -81,27 +135,32 @@ impl<'de> Deserialize<'de> for ZbxAuditLog {
             where
                 A: serde::de::MapAccess<'de>,
             {
-                let mut resourceid: Option<i64> = None;
-                let mut details: Option<ZbxAuditDetail> = None;
+                let mut resourceid = None;
+                let mut details = None;
 
                 while let Some(n) = map.next_key::<_Fields>()? {
                     match n {
-                        _Fields::Field0 => match map.next_value::<i64>() {
-                            Ok(val) => {
-                                if resourceid.is_some() {
-                                    return Err(serde::de::Error::duplicate_field("resourceid"));
-                                } else {
-                                    resourceid = Some(val)
-                                }
+                        _Fields::Field0 => {
+                            if resourceid.is_some() {
+                                return Err(serde::de::Error::duplicate_field("resourceid"));
                             }
-                            Err(er) => return Err(er),
-                        },
-                        _Fields::Field1 => match map.next_value::<ZbxAuditDetail>() {
-                            Ok(val) => {
+
+                            resourceid = Some(map.next_value_seed(FlexibleI64Seed)?);
+                        }
+                        _Fields::Field1 => match map.next_value::<String>() {
+                            Ok(raw) => {
                                 if details.is_some() {
                                     return Err(serde::de::Error::duplicate_field("details"));
                                 } else {
-                                    details = Some(val)
+                                    details = Some(if raw.trim().is_empty() {
+                                        HashMap::new()
+                                    } else {
+                                        serde_json::from_str(&raw).map_err(|e| {
+                                            serde::de::Error::custom(format!(
+                                                "error parseando details: {e}"
+                                            ))
+                                        })?
+                                    });
                                 }
                             }
                             Err(er) => return Err(er),
@@ -125,6 +184,7 @@ impl<'de> Deserialize<'de> for ZbxAuditLog {
     }
 }
 
+/*
 #[derive(Debug)]
 pub struct ZbxAuditDetail {
     pub host: Option<ZbxResourceOp>,
@@ -132,13 +192,85 @@ pub struct ZbxAuditDetail {
 }
 
 impl<'de> Deserialize<'de> for ZbxAuditDetail {
-    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        todo!()
+        enum _Field {
+            Field0,
+            Field1,
+            Ignore,
+        }
+        struct _FieldVisitor;
+        impl<'de> Visitor<'de> for _FieldVisitor {
+            type Value = _Field;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("")
+            }
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match v {
+                    "host.host" => Ok(_Field::Field0),
+                    "host.status" => Ok(_Field::Field1),
+                    _ => Ok(_Field::Ignore),
+                }
+            }
+        }
+
+        impl<'de> Deserialize<'de> for _Field {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                deserializer.deserialize_identifier(_FieldVisitor)
+            }
+        }
+
+        struct _Visitor;
+
+        impl<'de> Visitor<'de> for _Visitor {
+            type Value = ZbxAuditDetail;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                let mut host = None;
+                let mut status = None;
+                while let Some(variant) = map.next_key::<_Field>()? {
+                    match variant {
+                        _Field::Field0 => {
+                            if host.is_some() {
+                                return Err(serde::de::Error::duplicate_field("host.host"));
+                            } else {
+                                host = Some(map.next_value::<ZbxResourceOp>()?);
+                            }
+                        }
+                        _Field::Field1 => {
+                            if status.is_some() {
+                                return Err(serde::de::Error::duplicate_field("host.status"));
+                            } else {
+                                status = Some(map.next_value::<ZbxResourceOp>()?);
+                            }
+                        }
+                        _Field::Ignore => {
+                            map.next_value::<IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(ZbxAuditDetail { host, status })
+            }
+        }
+        const FIELDS: &'static [&'static str] = &["host", "status"];
+        deserializer.deserialize_struct("ZbxAuditDetail", FIELDS, _Visitor)
     }
 }
+*/
 
 #[derive(Debug)]
 pub enum ZbxResourceOp {
@@ -148,7 +280,7 @@ pub enum ZbxResourceOp {
 }
 
 impl<'de> Deserialize<'de> for ZbxResourceOp {
-    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -223,7 +355,7 @@ impl<'de> Deserialize<'de> for ZbxResourceOp {
             }
         }
 
-        _deserializer.deserialize_seq(_Visitor)
+        deserializer.deserialize_seq(_Visitor)
     }
 }
 
@@ -480,5 +612,167 @@ mod tests {
         let result: Result<ZbxResourceOp, _> = serde_json::from_str(json);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_update_rename() {
+        let json = r#"
+        {
+            "auditid": "cmsze1uj20001o9iyi4tluziv",
+            "userid": "1",
+            "username": "admin",
+            "clock": "1787101432",
+            "ip": "172.30.0.158",
+            "action": "1",
+            "resourcetype": "4",
+            "resourceid": "10715",
+            "resource_cuid": "0",
+            "resourcename": "CA-GP-",
+            "recordsetid": "cmsze1uj10000o9iyn07fcaav",
+            "details": "{\"host.host\":[\"update\",\"CA-GP\",\"CA-GP-\"],\"host.name\":[\"update\",\"CA-GP\",\"CA-GP-\"]}"
+        }
+        "#;
+
+        let log: ZbxAuditLog = serde_json::from_str(json).unwrap();
+
+        assert_eq!(log.resourceid, 10715);
+        assert_eq!(log.details.len(), 2);
+
+        match log.details.get("host.host") {
+            Some(ZbxResourceOp::Update { new, old }) => {
+                assert_eq!(new, "CA-GP");
+                assert_eq!(old, "CA-GP-");
+            }
+            other => panic!("esperaba Update en host.host, obtuve {:?}", other),
+        }
+
+        match log.details.get("host.name") {
+            Some(ZbxResourceOp::Update { new, old }) => {
+                assert_eq!(new, "CA-GP");
+                assert_eq!(old, "CA-GP-");
+            }
+            other => panic!("esperaba Update en host.name, obtuve {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_deserialize_add_with_empty_details() {
+        let json = r#"
+        {
+            "auditid": "cmshr5b2q000fe1iyv5wgabfc",
+            "userid": "1",
+            "username": "admin",
+            "clock": "1786035037",
+            "ip": "172.30.0.1",
+            "action": "0",
+            "resourcetype": "4",
+            "resourceid": "10973",
+            "resource_cuid": "0",
+            "resourcename": "Nodo_Campo-De-Las-Carreras-1497_Y_M-Lillo",
+            "recordsetid": "cmshr5b2q000ee1iyek29jyuz",
+            "details": ""
+        }
+        "#;
+
+        let log: ZbxAuditLog = serde_json::from_str(json).unwrap();
+
+        assert_eq!(log.resourceid, 10973);
+        assert!(log.details.is_empty());
+    }
+
+    #[test]
+    fn test_deserialize_delete_with_empty_details() {
+        let json = r#"
+        {
+            "auditid": "cmrzhoiiq001pshiy9hi0dvf8",
+            "userid": "1",
+            "username": "admin",
+            "clock": "1784930746",
+            "ip": "172.30.0.158",
+            "action": "2",
+            "resourcetype": "4",
+            "resourceid": "10719",
+            "resource_cuid": "0",
+            "resourcename": "Teleste-01",
+            "recordsetid": "cmrzhoieu0000shiy4weab5kx",
+            "details": ""
+        }
+        "#;
+
+        let log: ZbxAuditLog = serde_json::from_str(json).unwrap();
+
+        assert_eq!(log.resourceid, 10719);
+        assert!(log.details.is_empty());
+    }
+
+    #[test]
+    fn test_deserialize_ignores_unknown_fields() {
+        // confirma que campos no mapeados (auditid, userid, clock, etc.)
+        // se descartan sin romper el parseo
+        let json = r#"
+        {
+            "auditid": "xyz",
+            "userid": "1",
+            "clock": "123456",
+            "action": "1",
+            "resourcetype": "4",
+            "resourceid": "999",
+            "resourcename": "algo",
+            "details": ""
+        }
+        "#;
+
+        let log: ZbxAuditLog = serde_json::from_str(json).unwrap();
+        assert_eq!(log.resourceid, 999);
+    }
+
+    #[test]
+    fn test_deserialize_missing_resourceid_fails() {
+        let json = r#"
+        {
+            "details": ""
+        }
+        "#;
+
+        let result: Result<ZbxAuditLog, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_missing_details_fails() {
+        let json = r#"
+        {
+            "resourceid": "999"
+        }
+        "#;
+
+        let result: Result<ZbxAuditLog, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_full_array_response() {
+        // el caso real: la API devuelve un array de estos objetos
+        let json = r#"
+        [
+            {
+                "resourceid": "10953",
+                "action": "1",
+                "details": "{\"host.host\":[\"update\",\"Teleste-02\",\"Teleste-021\"],\"host.name\":[\"update\",\"Teleste-02\",\"Teleste-021\"]}"
+            },
+            {
+                "resourceid": "10719",
+                "action": "2",
+                "details": ""
+            }
+        ]
+        "#;
+
+        let logs: Vec<ZbxAuditLog> = serde_json::from_str(json).unwrap();
+
+        assert_eq!(logs.len(), 2);
+        assert_eq!(logs[0].resourceid, 10953);
+        assert_eq!(logs[1].resourceid, 10719);
+        assert!(logs[1].details.is_empty());
     }
 }
