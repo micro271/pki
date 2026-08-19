@@ -12,6 +12,9 @@ type ZbxAuditDetail = HashMap<String, ZbxResourceOp>;
 pub struct ZbxAuditLog {
     pub resourceid: i64,
     pub details: ZbxAuditDetail,
+    pub action: AuditAction,
+    pub clock: i64,
+    pub resourcename: String,
 }
 
 impl<'de> Deserialize<'de> for ZbxAuditLog {
@@ -22,6 +25,9 @@ impl<'de> Deserialize<'de> for ZbxAuditLog {
         enum _Fields {
             Field0,
             Field1,
+            Field3,
+            Field4,
+            Field5,
             Ignore,
         }
 
@@ -39,6 +45,9 @@ impl<'de> Deserialize<'de> for ZbxAuditLog {
                 match v {
                     "resourceid" => Ok(_Fields::Field0),
                     "details" => Ok(_Fields::Field1),
+                    "action" => Ok(_Fields::Field3),
+                    "clock" => Ok(_Fields::Field4),
+                    "resourcename" => Ok(_Fields::Field5),
                     _ => Ok(_Fields::Ignore),
                 }
             }
@@ -49,6 +58,9 @@ impl<'de> Deserialize<'de> for ZbxAuditLog {
                 match v {
                     0u64 => Ok(_Fields::Field0),
                     1u64 => Ok(_Fields::Field1),
+                    2u64 => Ok(_Fields::Field3),
+                    3u64 => Ok(_Fields::Field4),
+                    4u64 => Ok(_Fields::Field5),
                     _ => Ok(_Fields::Ignore),
                 }
             }
@@ -59,6 +71,9 @@ impl<'de> Deserialize<'de> for ZbxAuditLog {
                 match v {
                     b"resourceid" => Ok(_Fields::Field0),
                     b"details" => Ok(_Fields::Field1),
+                    b"action" => Ok(_Fields::Field3),
+                    b"clock" => Ok(_Fields::Field4),
+                    b"resourcename" => Ok(_Fields::Field5),
                     _ => Ok(_Fields::Ignore),
                 }
             }
@@ -137,7 +152,9 @@ impl<'de> Deserialize<'de> for ZbxAuditLog {
             {
                 let mut resourceid = None;
                 let mut details = None;
-
+                let mut action = None;
+                let mut clock = None;
+                let mut rname = None;
                 while let Some(n) = map.next_key::<_Fields>()? {
                     match n {
                         _Fields::Field0 => {
@@ -165,6 +182,27 @@ impl<'de> Deserialize<'de> for ZbxAuditLog {
                             }
                             Err(er) => return Err(er),
                         },
+                        _Fields::Field3 => {
+                            if action.is_some() {
+                                return Err(serde::de::Error::duplicate_field("action"));
+                            }
+
+                            action = Some(map.next_value::<AuditAction>()?);
+                        }
+                        _Fields::Field4 => {
+                            if clock.is_some() {
+                                return Err(serde::de::Error::duplicate_field("action"));
+                            }
+
+                            clock = Some(map.next_value_seed(FlexibleI64Seed)?);
+                        }
+                        _Fields::Field5 => {
+                            if rname.is_some() {
+                                return Err(serde::de::Error::duplicate_field("resourcename"));
+                            }
+
+                            rname = Some(map.next_value::<String>()?);
+                        }
                         _Fields::Ignore => {
                             map.next_value::<IgnoredAny>()?;
                         }
@@ -175,12 +213,83 @@ impl<'de> Deserialize<'de> for ZbxAuditLog {
                     resourceid: resourceid
                         .ok_or_else(|| serde::de::Error::missing_field("resourceid"))?,
                     details: details.ok_or_else(|| serde::de::Error::missing_field("details"))?,
+                    action: action.ok_or_else(|| serde::de::Error::missing_field("action"))?,
+                    clock: clock.ok_or_else(|| serde::de::Error::missing_field("clock"))?,
+                    resourcename: rname.ok_or_else(|| serde::de::Error::missing_field("clock"))?,
                 })
             }
         }
-        const FIELDS: &'static [&'static str; 2] = &["resourceid", "details"];
+        const FIELDS: &'static [&'static str; 5] =
+            &["resourceid", "details", "action", "clock", "resourcename"];
 
         deserializer.deserialize_struct("ZbxAuditLog", FIELDS, _Visitor)
+    }
+}
+
+#[derive(Debug)]
+pub enum AuditAction {
+    Add,
+    Update,
+    Delete,
+}
+
+impl<'de> Deserialize<'de> for AuditAction {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct _Visit;
+
+        impl<'de> Visitor<'de> for _Visit {
+            type Value = AuditAction;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string or integer representing an AuditAction (0, 1 or 2)")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match v {
+                    "0" => Ok(AuditAction::Add),
+                    "1" => Ok(AuditAction::Update),
+                    "2" => Ok(AuditAction::Delete),
+                    e => Err(serde::de::Error::unknown_variant(e, &["0", "1", "2"])),
+                }
+            }
+
+            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match v {
+                    0 => Ok(AuditAction::Add),
+                    1 => Ok(AuditAction::Update),
+                    2 => Ok(AuditAction::Delete),
+                    e => Err(serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Signed(e),
+                        &"0, 1 or 2",
+                    )),
+                }
+            }
+
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match v {
+                    0 => Ok(AuditAction::Add),
+                    1 => Ok(AuditAction::Update),
+                    2 => Ok(AuditAction::Delete),
+                    e => Err(serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(e),
+                        &"0, 1 or 2",
+                    )),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(_Visit)
     }
 }
 
